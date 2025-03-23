@@ -13,7 +13,6 @@ namespace CoasterForge {
         public UnityEngine.AnimationCurve LateralForceCurve;
         public UnityEngine.AnimationCurve RollSpeedCurve;
         public float Duration = 10f;
-        public int K = 1;
         public bool FixedVelocity = false;
         public bool ShouldUpdateFunctions = false;
         public bool Debug = false;
@@ -26,6 +25,7 @@ namespace CoasterForge {
         private NativeArray<float> _desiredRollSpeeds;
         private JobHandle _jobHandle;
         private int _nodeCount;
+        private int _refinement;
         private bool _initialized = false;
 
         private void Initialize() {
@@ -50,6 +50,7 @@ namespace CoasterForge {
                 }
             }
             UpdateFunctions();
+            _refinement = 0;
             _initialized = true;
         }
 
@@ -85,6 +86,7 @@ namespace CoasterForge {
             }
             else if (ShouldUpdateFunctions) {
                 UpdateFunctions();
+                _refinement = 0;
             }
 
             _prevNodes.CopyFrom(_nodes);
@@ -101,9 +103,11 @@ namespace CoasterForge {
                 DesiredNormalForces = _desiredNormalForces,
                 DesiredLateralForces = _desiredLateralForces,
                 DesiredRollSpeeds = _desiredRollSpeeds,
-                K = K,
+                Refinement = _refinement,
                 FixedVelocity = FixedVelocity,
             }.Schedule();
+
+            _refinement++;
         }
 
         private void UpdateFunctions() {
@@ -128,7 +132,7 @@ namespace CoasterForge {
             public NativeArray<float> DesiredRollSpeeds;
 
             [ReadOnly]
-            public int K;
+            public int Refinement;
 
             [ReadOnly]
             public bool FixedVelocity;
@@ -136,10 +140,30 @@ namespace CoasterForge {
             public void Execute() {
                 UpdateAnchor();
 
-                float hz = HZ / K;
+                const int fineNodesPerFrame = 1000;
+                int maxK = 1;
+                int levels = (int)math.floor(math.log2(Nodes.Length / (float)fineNodesPerFrame));
+                if (levels > 0) maxK = 1 << levels;
 
-                for (int i = K; i < Nodes.Length; i += K) {
-                    Node prev = Nodes[i - K];
+                int groupIndex = 0;
+                int remaining = Refinement;
+                int groupLevels = 1;
+                while (remaining >= groupLevels) {
+                    remaining -= groupLevels;
+                    groupIndex++;
+                    groupLevels *= 2;
+                }
+
+                int k = maxK >> groupIndex;
+                if (k < 1) k = 1;
+
+                int nodesPerGroup = (int)math.ceil(Nodes.Length / (float)groupLevels);
+                int start = nodesPerGroup * remaining;
+                int end = math.min(start + nodesPerGroup, Nodes.Length);
+                float hz = HZ / k;
+
+                for (int i = start + k; i < end; i += k) {
+                    Node prev = Nodes[i - k];
                     Node node = prev;
 
                     // Assign target constraints values
@@ -225,12 +249,12 @@ namespace CoasterForge {
                     Nodes[i] = node;
                 }
 
-                for (int i = 0; i < Nodes.Length; i++) {
-                    if (i % K == 0) continue;
+                for (int i = start; i < end; i++) {
+                    if ((i - start) % k == 0) continue;
 
-                    int coarseIndex = i / K * K;
-                    int nextCoarseIndex = math.min(coarseIndex + K, Nodes.Length - 1);
-                    float t = (i - coarseIndex) / (float)K;
+                    int coarseIndex = i / k * k;
+                    int nextCoarseIndex = math.min(coarseIndex + k, Nodes.Length - 1);
+                    float t = (i - coarseIndex) / (float)k;
 
                     Node prev = Nodes[coarseIndex];
                     Node next = Nodes[nextCoarseIndex];
