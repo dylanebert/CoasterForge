@@ -9,7 +9,7 @@ namespace CoasterForge.Editor {
 
             if (GUILayout.Button("Build")) {
                 var trackMesh = target as TrackMesh;
-                trackMesh.Build();
+                trackMesh.RequestRebuild();
             }
         }
     }
