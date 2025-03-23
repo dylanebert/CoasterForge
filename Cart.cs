@@ -30,12 +30,18 @@ namespace CoasterForge {
             float t = _indexFloat - index;
 
             int GetIndex(float offset) {
-                float start = nodes[index].TotalLength;
-                int increment = offset > 0f ? 1 : -1;
-                while (math.abs(nodes[index].TotalLength - start) < math.abs(offset) && index > 0 && index < nodes.Length - 2) {
-                    index += increment;
+                int currentIndex = index;
+                float startLength = nodes[index].TotalLength;
+                float targetLength = startLength + offset;
+                int direction = offset > 0f ? 1 : -1;
+                while (currentIndex > 0 && currentIndex < nodes.Length - 2) {
+                    if ((direction > 0 && nodes[currentIndex + 1].TotalLength >= targetLength) ||
+                        (direction < 0 && nodes[currentIndex - 1].TotalLength <= targetLength)) {
+                        break;
+                    }
+                    currentIndex += direction;
                 }
-                return index;
+                return currentIndex;
             }
 
             float3 GetSmoothPosition(int index) {
@@ -46,13 +52,30 @@ namespace CoasterForge {
                 );
             }
 
+            float3 GetSmoothHeartDirection(int index) {
+                return math.normalize(math.lerp(
+                    nodes[index].GetHeartDirection(HEART),
+                    nodes[index + 1].GetHeartDirection(HEART),
+                    t
+                ));
+            }
+
+            float3 GetSmoothHeartLateral(int index) {
+                return math.normalize(math.lerp(
+                    nodes[index].GetHeartLateral(HEART),
+                    nodes[index + 1].GetHeartLateral(HEART),
+                    t
+                ));
+            }
+
             int frontWheelIndex = GetIndex(FRONT_WHEEL_OFFSET);
             int rearWheelIndex = GetIndex(REAR_WHEEL_OFFSET);
             float3 frontWheelPosition = GetSmoothPosition(frontWheelIndex);
             float3 rearWheelPosition = GetSmoothPosition(rearWheelIndex);
 
-            float3 normal = math.lerp(nodes[index].Normal, nodes[index + 1].Normal, t);
-            float3 direction = math.normalize(frontWheelPosition - rearWheelPosition);
+            float3 direction = GetSmoothHeartDirection(index);
+            float3 lateral = GetSmoothHeartLateral(index);
+            float3 normal = math.normalize(math.cross(direction, lateral));
 
             float3 position = math.lerp(frontWheelPosition, rearWheelPosition, 0.5f);
             quaternion rotation = quaternion.LookRotation(direction, -normal);

@@ -133,6 +133,10 @@ namespace CoasterForge {
                 UnityEngine.Gizmos.color = UnityEngine.Color.yellow;
                 UnityEngine.Gizmos.DrawSphere(heartPosition, 0.1f);
                 UnityEngine.Gizmos.DrawLine(heartPosition, heartPosition + heartDirection);
+
+                float3 heartLateral = node.GetHeartLateral(HEART);
+                UnityEngine.Gizmos.color = UnityEngine.Color.blue;
+                UnityEngine.Gizmos.DrawLine(heartPosition, heartPosition + heartLateral);
             }
         }
 
