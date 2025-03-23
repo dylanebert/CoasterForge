@@ -13,6 +13,7 @@ namespace CoasterForge {
         public UnityEngine.AnimationCurve LateralForceCurve;
         public UnityEngine.AnimationCurve RollSpeedCurve;
         public float Duration = 10f;
+        public int K = 1;
         public bool FixedVelocity = false;
         public bool ShouldUpdateFunctions = false;
         public bool Debug = false;
@@ -100,6 +101,7 @@ namespace CoasterForge {
                 DesiredNormalForces = _desiredNormalForces,
                 DesiredLateralForces = _desiredLateralForces,
                 DesiredRollSpeeds = _desiredRollSpeeds,
+                K = K,
                 FixedVelocity = FixedVelocity,
             }.Schedule();
         }
@@ -126,16 +128,18 @@ namespace CoasterForge {
             public NativeArray<float> DesiredRollSpeeds;
 
             [ReadOnly]
+            public int K;
+
+            [ReadOnly]
             public bool FixedVelocity;
 
             public void Execute() {
-                Node anchor = Nodes[0];
-                anchor.Velocity = 10f;
-                anchor.Energy = 0.5f * anchor.Velocity * anchor.Velocity + G * GetHeartPosition(anchor, 0.9f).y;
-                Nodes[0] = anchor;
+                UpdateAnchor();
 
-                for (int i = 1; i < Nodes.Length; i++) {
-                    Node prev = Nodes[i - 1];
+                float hz = HZ / K;
+
+                for (int i = K; i < Nodes.Length; i += K) {
+                    Node prev = Nodes[i - K];
                     Node node = prev;
 
                     // Assign target constraints values
@@ -147,27 +151,27 @@ namespace CoasterForge {
                     float3 forceVec = -node.NormalForce * prev.Normal - node.LateralForce * prev.Lateral + math.down();
                     float normalForce = -math.dot(forceVec, prev.Normal) * G;
                     float lateralForce = -math.dot(forceVec, prev.Lateral) * G;
-                    float estimatedVelocity = math.abs(prev.HeartDistanceFromLast) < EPSILON ? prev.Velocity : prev.HeartDistanceFromLast * HZ;
+                    float estimatedVelocity = math.abs(prev.HeartDistanceFromLast) < EPSILON ? prev.Velocity : prev.HeartDistanceFromLast * hz;
 
                     // Compute curvature needed to match force vectors
                     node.Direction = math.mul(
                         math.mul(
-                            quaternion.AxisAngle(prev.Lateral, normalForce / estimatedVelocity / HZ),
-                            quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / HZ)
+                            quaternion.AxisAngle(prev.Lateral, normalForce / estimatedVelocity / hz),
+                            quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / hz)
                         ),
                         prev.Direction
                     );
                     node.Lateral = math.mul(
-                        quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / HZ),
+                        quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / hz),
                         prev.Lateral
                     );
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
-                    node.Position += node.Direction * (node.Velocity / (2f * HZ))
-                        + prev.Direction * (node.Velocity / (2f * HZ))
+                    node.Position += node.Direction * (node.Velocity / (2f * hz))
+                        + prev.Direction * (node.Velocity / (2f * hz))
                         + (GetHeartPosition(prev) - GetHeartPosition(node));
 
                     // Apply roll
-                    float deltaRoll = node.RollSpeed / HZ;
+                    float deltaRoll = node.RollSpeed / hz;
                     quaternion rollQuat = quaternion.AxisAngle(node.Direction, math.radians(deltaRoll));
                     node.Lateral = math.normalize(math.mul(rollQuat, node.Lateral));
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
@@ -196,7 +200,7 @@ namespace CoasterForge {
                         node.Energy = 0.5f * node.Velocity * node.Velocity + pe;
                     }
                     else {
-                        node.Energy -= node.Velocity * node.Velocity * node.Velocity * RESISTANCE / HZ;
+                        node.Energy -= node.Velocity * node.Velocity * node.Velocity * RESISTANCE / hz;
                         node.Velocity = math.sqrt(2f * math.max(0, node.Energy - pe));
                     }
 
@@ -212,14 +216,37 @@ namespace CoasterForge {
                         float lateralAngle = math.radians(node.PitchFromLast * sinRoll
                             - yawScaleFactor * node.YawFromLast * cosRoll);
                         forceVec = math.up()
-                            + lateralAngle * node.Lateral * node.Velocity * HZ / G
-                            + normalAngle * node.Normal * node.HeartDistanceFromLast * HZ * HZ / G;
+                            + lateralAngle * node.Lateral * node.Velocity * hz / G
+                            + normalAngle * node.Normal * node.HeartDistanceFromLast * hz * hz / G;
                     }
                     node.NormalForce = -math.dot(forceVec, node.Normal);
                     node.LateralForce = -math.dot(forceVec, node.Lateral);
 
                     Nodes[i] = node;
                 }
+
+                for (int i = 0; i < Nodes.Length; i++) {
+                    if (i % K == 0) continue;
+
+                    int coarseIndex = i / K * K;
+                    int nextCoarseIndex = math.min(coarseIndex + K, Nodes.Length - 1);
+                    float t = (i - coarseIndex) / (float)K;
+
+                    Node prev = Nodes[coarseIndex];
+                    Node next = Nodes[nextCoarseIndex];
+                    Node node = prev;
+
+                    node.Position = math.lerp(prev.Position, next.Position, t);
+
+                    Nodes[i] = node;
+                }
+            }
+
+            private void UpdateAnchor() {
+                Node anchor = Nodes[0];
+                anchor.Velocity = 10f;
+                anchor.Energy = 0.5f * anchor.Velocity * anchor.Velocity + G * GetHeartPosition(anchor, 0.9f).y;
+                Nodes[0] = anchor;
             }
 
             private float GetPitch(Node node) {
