@@ -17,6 +17,13 @@ namespace CoasterForge {
             return node.Position + node.Normal * heart;
         }
 
+        public static float3 GetRelativePosition(this Node node, float3 position) {
+            return node.Position
+                - position.y * node.Normal
+                + position.x * node.GetHeartLateral(position.y)
+                + position.z * node.GetHeartDirection(position.y);
+        }
+
         public static float3 GetHeartDirection(this Node node, float heart) {
             float dist;
             if (node.AngleFromLast < 1e-3f) {
@@ -31,6 +38,22 @@ namespace CoasterForge {
             }
             float3 deviation = node.Lateral * math.radians(rollSpeed * heart);
             return math.normalize(node.Direction + deviation);
+        }
+
+        public static float3 GetHeartLateral(this Node node, float heart) {
+            float dist;
+            if (node.AngleFromLast < 1e-3f) {
+                dist = node.HeartDistanceFromLast;
+            }
+            else {
+                dist = node.Velocity / HZ;
+            }
+            float rollSpeed = dist > 0f ? node.RollSpeed / HZ / dist : 0f;
+            if (float.IsNaN(rollSpeed)) {
+                rollSpeed = 0f;
+            }
+            float3 deviation = -node.Direction * math.radians(rollSpeed * heart);
+            return math.normalize(node.Lateral + deviation);
         }
     }
 }
