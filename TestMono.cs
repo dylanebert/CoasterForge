@@ -194,7 +194,7 @@ namespace CoasterForge {
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
                     node.Position += node.Direction * (node.Velocity / (2f * hz))
                         + prev.Direction * (node.Velocity / (2f * hz))
-                        + (GetHeartPosition(prev) - GetHeartPosition(node));
+                        + (prev.GetHeartPosition(HEART) - node.GetHeartPosition(HEART));
 
                     // Apply roll
                     float deltaRoll = node.RollSpeed / hz;
@@ -203,7 +203,7 @@ namespace CoasterForge {
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
 
                     // Compute node metrics
-                    node.DistanceFromLast = math.distance(GetHeartPosition(node), GetHeartPosition(prev));
+                    node.DistanceFromLast = math.distance(node.GetHeartPosition(HEART), prev.GetHeartPosition(HEART));
                     node.TotalLength += node.DistanceFromLast;
                     node.HeartDistanceFromLast = math.distance(node.Position, prev.Position);
                     node.TotalHeartLength += node.HeartDistanceFromLast;
@@ -214,13 +214,13 @@ namespace CoasterForge {
                         node.YawFromLast = 0f;
                     }
                     else {
-                        node.PitchFromLast = (GetPitch(node) - GetPitch(prev) + 540) % 360 - 180;
-                        node.YawFromLast = (GetYaw(node) - GetYaw(prev) + 540) % 360 - 180;
+                        node.PitchFromLast = (node.GetPitch() - prev.GetPitch() + 540) % 360 - 180;
+                        node.YawFromLast = (node.GetYaw() - prev.GetYaw() + 540) % 360 - 180;
                     }
-                    float yawScaleFactor = math.cos(math.abs(math.radians(GetPitch(node))));
+                    float yawScaleFactor = math.cos(math.abs(math.radians(node.GetPitch())));
                     node.AngleFromLast = math.sqrt(yawScaleFactor * yawScaleFactor * node.YawFromLast * node.YawFromLast + node.PitchFromLast * node.PitchFromLast);
 
-                    float pe = G * (GetHeartPosition(node, 0.9f).y + node.TotalLength * FRICTION);
+                    float pe = G * (node.GetHeartPosition(CENTER).y + node.TotalLength * FRICTION);
                     if (FixedVelocity) {
                         node.Velocity = 10f;
                         node.Energy = 0.5f * node.Velocity * node.Velocity + pe;
@@ -271,31 +271,26 @@ namespace CoasterForge {
             private void UpdateAnchor() {
                 Node anchor = Nodes[0];
                 anchor.Velocity = 10f;
-                anchor.Energy = 0.5f * anchor.Velocity * anchor.Velocity + G * GetHeartPosition(anchor, 0.9f).y;
+                anchor.Energy = 0.5f * anchor.Velocity * anchor.Velocity + G * anchor.GetHeartPosition(CENTER).y;
                 Nodes[0] = anchor;
-            }
-
-            private float GetPitch(Node node) {
-                float magnitude = math.sqrt(node.Direction.x * node.Direction.x + node.Direction.z * node.Direction.z);
-                return math.degrees(math.atan2(node.Direction.y, magnitude));
-            }
-
-            private float GetYaw(Node node) {
-                return math.degrees(math.atan2(-node.Direction.x, -node.Direction.z));
-            }
-
-            private float3 GetHeartPosition(Node node, float multiplier = 1f) {
-                return node.Position + node.Normal * HEART * multiplier;
             }
         }
 
         private void OnDrawGizmos() {
-            UnityEngine.Gizmos.color = UnityEngine.Color.red;
             for (int i = 0; i < _prevNodes.Length; i++) {
                 if (i % 100 != 0) continue;
                 var node = _prevNodes[i];
-                UnityEngine.Gizmos.DrawSphere(node.Position, 0.1f);
-                UnityEngine.Gizmos.DrawLine(node.Position, node.Position + node.Direction);
+                float3 position = node.Position;
+                float3 direction = node.Direction;
+                UnityEngine.Gizmos.color = UnityEngine.Color.red;
+                UnityEngine.Gizmos.DrawSphere(position, 0.1f);
+                UnityEngine.Gizmos.DrawLine(position, position + direction);
+
+                float3 heartPosition = node.GetHeartPosition(HEART);
+                float3 heartDirection = node.GetHeartDirection(HEART);
+                UnityEngine.Gizmos.color = UnityEngine.Color.yellow;
+                UnityEngine.Gizmos.DrawSphere(heartPosition, 0.1f);
+                UnityEngine.Gizmos.DrawLine(heartPosition, heartPosition + heartDirection);
             }
         }
     }
