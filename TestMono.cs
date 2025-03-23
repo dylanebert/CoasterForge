@@ -14,6 +14,8 @@ namespace CoasterForge {
         public UnityEngine.AnimationCurve RollSpeedCurve;
         public float Duration = 10f;
         public bool FixedVelocity = false;
+        public bool ShouldUpdateFunctions = false;
+        public bool Debug = false;
 
         private List<NodeMono> _nodesMono = new();
         private NativeArray<Node> _nodes;
@@ -39,17 +41,18 @@ namespace CoasterForge {
             for (int i = 0; i < _nodeCount; i++) {
                 var node = Node.Default;
                 _nodes[i] = node;
-                var nodeMono = new UnityEngine.GameObject("Node").AddComponent<NodeMono>();
-                nodeMono.transform.SetParent(transform);
-                _nodesMono.Add(nodeMono);
+
+                if (Debug) {
+                    var nodeMono = new UnityEngine.GameObject("Node").AddComponent<NodeMono>();
+                    nodeMono.transform.SetParent(transform);
+                    _nodesMono.Add(nodeMono);
+                }
             }
+            UpdateFunctions();
             _initialized = true;
         }
 
         private void Dispose() {
-            if (_jobHandle.IsCompleted) {
-                _jobHandle.Complete();
-            }
             if (!_initialized) return;
             _nodes.Dispose();
             _prevNodes.Dispose();
@@ -68,34 +71,28 @@ namespace CoasterForge {
         }
 
         private void OnDestroy() {
+            _jobHandle.Complete();
             Dispose();
         }
 
         private void Update() {
-            if (_jobHandle.IsCompleted) {
-                _jobHandle.Complete();
-            }
+            _jobHandle.Complete();
 
             int nodeCount = (int)(HZ * Duration);
             if (nodeCount != _nodeCount) {
                 Initialize();
             }
-
-            for (int i = 0; i < _nodeCount; i++) {
-                _desiredNormalForces[i] = NormalForceCurve.Evaluate(i / (_nodeCount - 1f));
-                _desiredLateralForces[i] = LateralForceCurve.Evaluate(i / (_nodeCount - 1f));
-                _desiredRollSpeeds[i] = RollSpeedCurve.Evaluate(i / (_nodeCount - 1f));
+            else if (ShouldUpdateFunctions) {
+                UpdateFunctions();
             }
 
-            Build();
-        }
-
-        private void Build() {
             _prevNodes.CopyFrom(_nodes);
 
-            for (int i = 0; i < _nodeCount; i++) {
-                _nodesMono[i].Node = _nodes[i];
-                _nodesMono[i].transform.position = _nodes[i].Position;
+            if (Debug) {
+                for (int i = 0; i < _nodeCount; i++) {
+                    _nodesMono[i].Node = _nodes[i];
+                    _nodesMono[i].transform.position = _nodes[i].Position;
+                }
             }
 
             _jobHandle = new BuildJob {
@@ -105,6 +102,14 @@ namespace CoasterForge {
                 DesiredRollSpeeds = _desiredRollSpeeds,
                 FixedVelocity = FixedVelocity,
             }.Schedule();
+        }
+
+        private void UpdateFunctions() {
+            for (int i = 0; i < _nodeCount; i++) {
+                _desiredNormalForces[i] = NormalForceCurve.Evaluate(i / (_nodeCount - 1f));
+                _desiredLateralForces[i] = LateralForceCurve.Evaluate(i / (_nodeCount - 1f));
+                _desiredRollSpeeds[i] = RollSpeedCurve.Evaluate(i / (_nodeCount - 1f));
+            }
         }
 
         [BurstCompile]
