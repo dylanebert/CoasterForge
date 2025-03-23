@@ -17,9 +17,11 @@ namespace CoasterForge {
 
         private List<NodeMono> _nodesMono = new();
         private NativeArray<Node> _nodes;
+        private NativeArray<Node> _prevNodes;
         private NativeArray<float> _desiredNormalForces;
         private NativeArray<float> _desiredLateralForces;
         private NativeArray<float> _desiredRollSpeeds;
+        private JobHandle _jobHandle;
         private int _nodeCount;
         private bool _initialized = false;
 
@@ -30,6 +32,7 @@ namespace CoasterForge {
 
             _nodeCount = (int)(HZ * Duration);
             _nodes = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
+            _prevNodes = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
             _desiredNormalForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
             _desiredLateralForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
             _desiredRollSpeeds = new NativeArray<float>(_nodeCount, Allocator.Persistent);
@@ -44,8 +47,12 @@ namespace CoasterForge {
         }
 
         private void Dispose() {
+            if (_jobHandle.IsCompleted) {
+                _jobHandle.Complete();
+            }
             if (!_initialized) return;
             _nodes.Dispose();
+            _prevNodes.Dispose();
             _desiredNormalForces.Dispose();
             _desiredLateralForces.Dispose();
             _desiredRollSpeeds.Dispose();
@@ -65,6 +72,10 @@ namespace CoasterForge {
         }
 
         private void Update() {
+            if (_jobHandle.IsCompleted) {
+                _jobHandle.Complete();
+            }
+
             int nodeCount = (int)(HZ * Duration);
             if (nodeCount != _nodeCount) {
                 Initialize();
@@ -80,17 +91,20 @@ namespace CoasterForge {
         }
 
         private void Build() {
+            _prevNodes.CopyFrom(_nodes);
+
             for (int i = 0; i < _nodeCount; i++) {
                 _nodesMono[i].Node = _nodes[i];
+                _nodesMono[i].transform.position = _nodes[i].Position;
             }
 
-            new BuildJob {
+            _jobHandle = new BuildJob {
                 Nodes = _nodes,
                 DesiredNormalForces = _desiredNormalForces,
                 DesiredLateralForces = _desiredLateralForces,
                 DesiredRollSpeeds = _desiredRollSpeeds,
                 FixedVelocity = FixedVelocity,
-            }.Schedule().Complete();
+            }.Schedule();
         }
 
         [BurstCompile]
@@ -219,9 +233,9 @@ namespace CoasterForge {
 
         private void OnDrawGizmos() {
             UnityEngine.Gizmos.color = UnityEngine.Color.red;
-            for (int i = 0; i < _nodes.Length; i++) {
+            for (int i = 0; i < _prevNodes.Length; i++) {
                 if (i % 100 != 0) continue;
-                var node = _nodes[i];
+                var node = _prevNodes[i];
                 UnityEngine.Gizmos.DrawSphere(node.Position, 0.1f);
                 UnityEngine.Gizmos.DrawLine(node.Position, node.Position + node.Direction);
             }

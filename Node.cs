@@ -1,8 +1,6 @@
 using Unity.Mathematics;
 
 namespace CoasterForge {
-    using static Constants;
-
     [System.Serializable]
     public struct Node {
         public float3 Position;
