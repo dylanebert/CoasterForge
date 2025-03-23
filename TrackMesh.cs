@@ -146,17 +146,7 @@ namespace CoasterForge {
                 UpperLayers = UpperLayers,
                 LowerLayers = LowerLayers,
                 Resolution = Resolution,
-                TrackVertexCount = trackVertexCount,
-                TrackTriangleCount = trackTriangleCount,
-                TopperVertexCount = topperVertexCount,
-                TopperTriangleCount = topperTriangleCount,
-            }.Schedule().Complete();
-
-            topperMeshData.subMeshCount = 1;
-            topperMeshData.SetSubMesh(0, new SubMeshDescriptor(0, topperTriangleCount));
-
-            trackMeshData.subMeshCount = 1;
-            trackMeshData.SetSubMesh(0, new SubMeshDescriptor(0, trackTriangleCount));
+            }.Schedule(2, 1).Complete();
 
             UnityEngine.Mesh.ApplyAndDisposeWritableMeshData(meshDataArray, _meshes);
 
@@ -165,7 +155,8 @@ namespace CoasterForge {
         }
 
         [BurstCompile]
-        private struct BuildJob : IJob {
+        private struct BuildJob : IJobParallelFor {
+            [NativeDisableParallelForRestriction]
             public UnityEngine.Mesh.MeshDataArray MeshDataArray;
 
             [ReadOnly]
@@ -210,21 +201,13 @@ namespace CoasterForge {
             [ReadOnly]
             public int Resolution;
 
-            [ReadOnly]
-            public int TrackVertexCount;
-
-            [ReadOnly]
-            public int TrackTriangleCount;
-
-            [ReadOnly]
-            public int TopperVertexCount;
-
-            [ReadOnly]
-            public int TopperTriangleCount;
-
-            public void Execute() {
-                BuildTopper();
-                BuildTrack();
+            public void Execute(int index) {
+                if (index == 0) {
+                    BuildTopper();
+                }
+                else {
+                    BuildTrack();
+                }
             }
 
             private void BuildTopper() {
@@ -321,6 +304,9 @@ namespace CoasterForge {
                 AddTransverseQuad(first, topperRightBL, topperRightTR, topperRightBR, topperRightTL);
                 AddTransverseQuad(last, topperLeftBL, topperLeftBR, topperLeftTR, topperLeftTL);
                 AddTransverseQuad(last, topperRightBL, topperRightBR, topperRightTR, topperRightTL);
+
+                topperMeshData.subMeshCount = 1;
+                topperMeshData.SetSubMesh(0, new SubMeshDescriptor(0, triangleIndex));
             }
 
             private void BuildTrack() {
@@ -462,6 +448,9 @@ namespace CoasterForge {
                 AddTransverseQuad(first, lowerLayersRightBL, lowerLayersRightTR, lowerLayersRightBR, lowerLayersRightTL);
                 AddTransverseQuad(last, lowerLayersLeftBL, lowerLayersLeftBR, lowerLayersLeftTR, lowerLayersLeftTL);
                 AddTransverseQuad(last, lowerLayersRightBL, lowerLayersRightBR, lowerLayersRightTR, lowerLayersRightTL);
+
+                trackMeshData.subMeshCount = 1;
+                trackMeshData.SetSubMesh(0, new SubMeshDescriptor(0, triangleIndex));
             }
         }
     }
