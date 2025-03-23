@@ -163,6 +163,8 @@ namespace CoasterForge {
                 float hz = HZ / k;
 
                 for (int i = start + k; i < end; i += k) {
+                    if (Refinement > 0 && i % (k * 2) == 0) continue;
+
                     Node prev = Nodes[i - k];
                     Node node = prev;
 
