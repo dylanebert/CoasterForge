@@ -3,12 +3,10 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
-
+using static CoasterForge.Constants;
 
 namespace CoasterForge {
-    using static Constants;
-
-    public class TestMono : UnityEngine.MonoBehaviour {
+    public class Track : UnityEngine.MonoBehaviour {
         public UnityEngine.AnimationCurve NormalForceCurve;
         public UnityEngine.AnimationCurve LateralForceCurve;
         public UnityEngine.AnimationCurve RollSpeedCurve;
@@ -17,7 +15,7 @@ namespace CoasterForge {
         public bool ShouldUpdateFunctions = false;
         public bool Debug = false;
 
-        private List<NodeMono> _nodesMono = new();
+        private List<DebugNode> _nodesMono = new();
         private NativeArray<Node> _nodes;
         private NativeArray<Node> _prevNodes;
         private NativeArray<float> _desiredNormalForces;
@@ -27,6 +25,8 @@ namespace CoasterForge {
         private int _nodeCount;
         private int _refinement;
         private bool _initialized = false;
+
+        public NativeArray<Node> Nodes => _prevNodes;
 
         private void Initialize() {
             if (_initialized) {
@@ -44,7 +44,7 @@ namespace CoasterForge {
                 _nodes[i] = node;
 
                 if (Debug) {
-                    var nodeMono = new UnityEngine.GameObject("Node").AddComponent<NodeMono>();
+                    var nodeMono = new UnityEngine.GameObject("Node").AddComponent<DebugNode>();
                     nodeMono.transform.SetParent(transform);
                     _nodesMono.Add(nodeMono);
                 }
@@ -118,6 +118,24 @@ namespace CoasterForge {
             }
         }
 
+        private void OnDrawGizmos() {
+            for (int i = 0; i < _prevNodes.Length; i++) {
+                if (i % 100 != 0) continue;
+                var node = _prevNodes[i];
+                float3 position = node.Position;
+                float3 direction = node.Direction;
+                UnityEngine.Gizmos.color = UnityEngine.Color.red;
+                UnityEngine.Gizmos.DrawSphere(position, 0.1f);
+                UnityEngine.Gizmos.DrawLine(position, position + direction);
+
+                float3 heartPosition = node.GetHeartPosition(HEART);
+                float3 heartDirection = node.GetHeartDirection(HEART);
+                UnityEngine.Gizmos.color = UnityEngine.Color.yellow;
+                UnityEngine.Gizmos.DrawSphere(heartPosition, 0.1f);
+                UnityEngine.Gizmos.DrawLine(heartPosition, heartPosition + heartDirection);
+            }
+        }
+
         [BurstCompile]
         private struct BuildJob : IJob {
             public NativeArray<Node> Nodes;
@@ -140,7 +158,7 @@ namespace CoasterForge {
             public void Execute() {
                 UpdateAnchor();
 
-                const int fineNodesPerFrame = 1000;
+                const int fineNodesPerFrame = 10000;
                 int maxK = 1;
                 int levels = (int)math.floor(math.log2(Nodes.Length / (float)fineNodesPerFrame));
                 if (levels > 0) maxK = 1 << levels;
@@ -198,9 +216,10 @@ namespace CoasterForge {
 
                     // Apply roll
                     float deltaRoll = node.RollSpeed / hz;
-                    quaternion rollQuat = quaternion.AxisAngle(node.Direction, math.radians(deltaRoll));
+                    quaternion rollQuat = quaternion.AxisAngle(node.Direction, math.radians(-deltaRoll));
                     node.Lateral = math.normalize(math.mul(rollQuat, node.Lateral));
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
+                    node.Roll = math.degrees(math.atan2(node.Lateral.y, -node.Normal.y));
 
                     // Compute node metrics
                     node.DistanceFromLast = math.distance(node.GetHeartPosition(HEART), prev.GetHeartPosition(HEART));
@@ -276,22 +295,45 @@ namespace CoasterForge {
             }
         }
 
-        private void OnDrawGizmos() {
-            for (int i = 0; i < _prevNodes.Length; i++) {
-                if (i % 100 != 0) continue;
-                var node = _prevNodes[i];
-                float3 position = node.Position;
-                float3 direction = node.Direction;
-                UnityEngine.Gizmos.color = UnityEngine.Color.red;
-                UnityEngine.Gizmos.DrawSphere(position, 0.1f);
-                UnityEngine.Gizmos.DrawLine(position, position + direction);
+        [System.Serializable]
+        public struct Node {
+            public float3 Position;
+            public float3 Direction;
+            public float3 Lateral;
+            public float3 Normal;
+            public float Roll;
+            public float Velocity;
+            public float Energy;
+            public float NormalForce;
+            public float LateralForce;
+            public float DistanceFromLast;
+            public float HeartDistanceFromLast;
+            public float AngleFromLast;
+            public float PitchFromLast;
+            public float YawFromLast;
+            public float RollSpeed;
+            public float TotalLength;
+            public float TotalHeartLength;
 
-                float3 heartPosition = node.GetHeartPosition(HEART);
-                float3 heartDirection = node.GetHeartDirection(HEART);
-                UnityEngine.Gizmos.color = UnityEngine.Color.yellow;
-                UnityEngine.Gizmos.DrawSphere(heartPosition, 0.1f);
-                UnityEngine.Gizmos.DrawLine(heartPosition, heartPosition + heartDirection);
-            }
+            public static Node Default => new() {
+                Position = float3.zero,
+                Direction = math.back(),
+                Lateral = math.right(),
+                Normal = math.down(),
+                Roll = 0f,
+                Velocity = 0f,
+                Energy = 0f,
+                NormalForce = 1f,
+                LateralForce = 0f,
+                DistanceFromLast = 0f,
+                HeartDistanceFromLast = 0f,
+                AngleFromLast = 0f,
+                PitchFromLast = 0f,
+                YawFromLast = 0f,
+                RollSpeed = 0f,
+                TotalLength = 0f,
+                TotalHeartLength = 0f,
+            };
         }
     }
 }

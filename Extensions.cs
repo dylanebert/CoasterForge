@@ -1,8 +1,8 @@
 using Unity.Mathematics;
+using static CoasterForge.Constants;
+using Node = CoasterForge.Track.Node;
 
 namespace CoasterForge {
-    using static Constants;
-
     public static class Extensions {
         public static float GetPitch(this Node node) {
             float magnitude = math.sqrt(node.Direction.x * node.Direction.x + node.Direction.z * node.Direction.z);
@@ -18,14 +18,14 @@ namespace CoasterForge {
         }
 
         public static float3 GetHeartDirection(this Node node, float heart) {
-            float estimated;
+            float dist;
             if (node.AngleFromLast < 1e-3f) {
-                estimated = node.HeartDistanceFromLast;
+                dist = node.HeartDistanceFromLast;
             }
             else {
-                estimated = node.Velocity / HZ;
+                dist = node.Velocity / HZ;
             }
-            float rollSpeed = estimated > 0f ? node.Roll / HZ / estimated : 0f;
+            float rollSpeed = dist > 0f ? node.RollSpeed / HZ / dist : 0f;
             if (float.IsNaN(rollSpeed)) {
                 rollSpeed = 0f;
             }
