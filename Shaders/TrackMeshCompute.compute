@@ -1,0 +1,100 @@
+#pragma kernel CSMain
+
+struct Node {
+    float3 Position;
+    float3 Direction;
+    float3 Lateral;
+    float3 Normal;
+    float Roll;
+    float Velocity;
+    float Energy;
+    float NormalForce;
+    float LateralForce;
+    float DistanceFromLast;
+    float HeartDistanceFromLast;
+    float AngleFromLast;
+    float PitchFromLast;
+    float YawFromLast;
+    float RollSpeed;
+    float TotalLength;
+    float TotalHeartLength;
+};
+
+StructuredBuffer<Node> _Nodes;
+RWStructuredBuffer<float4x4> _Matrices;
+RWStructuredBuffer<uint> _Ties;
+
+float _Heart;
+
+float3 GetHeartPosition(Node node) {
+    return node.Position + _Heart * node.Normal;
+}
+
+float3 GetHeartDirection(Node node) {
+    const float HZ = 1000.0;
+    float dist;
+    if (node.AngleFromLast < 1e-3) {
+        dist = node.HeartDistanceFromLast;
+    }
+    else {
+        dist = node.Velocity / HZ;
+    }
+
+    float rollSpeed = dist > 0.0 ? node.RollSpeed / HZ / dist : 0.0;
+    if (isnan(rollSpeed)) rollSpeed = 0.0;
+
+    float3 deviation = node.Lateral * radians(rollSpeed * _Heart);
+    return normalize(node.Direction + deviation);
+}
+
+float3 GetHeartLateral(Node node) {
+    const float HZ = 1000.0;
+    float dist;
+    if (node.AngleFromLast < 1e-3) {
+        dist = node.HeartDistanceFromLast;
+    }
+    else {
+        dist = node.Velocity / HZ;
+    }
+    float rollSpeed = dist > 0.0 ? node.RollSpeed / HZ / dist : 0.0;
+    if (isnan(rollSpeed)) rollSpeed = 0.0;
+
+    float3 deviation = -node.Direction * radians(rollSpeed * _Heart);
+    return normalize(node.Lateral + deviation);
+}
+
+float4x4 LookRotationMatrix(float3 forward, float3 up) {
+    forward = normalize(forward);
+    float3 right = normalize(cross(up, forward));
+    up = normalize(cross(forward, right));
+    
+    float4x4 result = float4x4(
+        float4(right.x, up.x, forward.x, 0),
+        float4(right.y, up.y, forward.y, 0),
+        float4(right.z, up.z, forward.z, 0),
+        float4(0, 0, 0, 1)
+    );
+    
+    return result;
+}
+
+float4x4 TRS(float3 pos, float4x4 rot) {
+    float4x4 result = rot;
+    result._m03_m13_m23 = pos;    
+    return result;
+}
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+    Node node = _Nodes[id.x];
+
+    float3 position = GetHeartPosition(node);
+    
+    float3 forward = GetHeartDirection(node);
+    float3 lateral = GetHeartLateral(node);
+    float3 up = normalize(cross(forward, lateral));
+    float4x4 rotation = LookRotationMatrix(forward, -up);
+    
+    _Matrices[id.x] = TRS(position, rotation);
+    _Ties[id.x] = id.x % (uint)60;
+}
