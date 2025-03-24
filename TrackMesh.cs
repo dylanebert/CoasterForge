@@ -9,9 +9,8 @@ using Node = CoasterForge.Track.Node;
 namespace CoasterForge {
     public class TrackMesh : UnityEngine.MonoBehaviour {
         public Track Track;
-        public UnityEngine.MeshFilter TopperMeshFilter;
-        public UnityEngine.MeshFilter TrackMeshFilter;
-        public UnityEngine.MeshFilter TiesMeshFilter;
+        public UnityEngine.Material TopperMaterial;
+        public UnityEngine.Material TrackMaterial;
         public float StartOffset = 0.35f;
         public float TrackGauge = 1.0865f;
         public float TopperThickness = 0.011f;
@@ -41,9 +40,21 @@ namespace CoasterForge {
             _meshes[2] = new UnityEngine.Mesh {
                 name = "Ties",
             };
-            TopperMeshFilter.mesh = _meshes[0];
-            TrackMeshFilter.mesh = _meshes[1];
-            TiesMeshFilter.mesh = _meshes[2];
+
+            var topper = new UnityEngine.GameObject("Topper");
+            topper.AddComponent<UnityEngine.MeshRenderer>().sharedMaterial = TopperMaterial;
+            topper.AddComponent<UnityEngine.MeshFilter>().mesh = _meshes[0];
+            topper.transform.SetParent(transform);
+
+            var track = new UnityEngine.GameObject("Track");
+            track.AddComponent<UnityEngine.MeshRenderer>().sharedMaterial = TrackMaterial;
+            track.AddComponent<UnityEngine.MeshFilter>().mesh = _meshes[1];
+            track.transform.SetParent(transform);
+
+            var ties = new UnityEngine.GameObject("Ties");
+            ties.AddComponent<UnityEngine.MeshRenderer>().sharedMaterial = TrackMaterial;
+            ties.AddComponent<UnityEngine.MeshFilter>().mesh = _meshes[2];
+            ties.transform.SetParent(transform);
         }
 
         private void Update() {
