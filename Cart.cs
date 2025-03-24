@@ -72,12 +72,15 @@ namespace CoasterForge {
             int rearWheelIndex = GetIndex(REAR_WHEEL_OFFSET);
             float3 frontWheelPosition = GetSmoothPosition(frontWheelIndex);
             float3 rearWheelPosition = GetSmoothPosition(rearWheelIndex);
+            float3 position = math.lerp(frontWheelPosition, rearWheelPosition, 0.5f);
+
+            if (math.any(math.isnan(position))) {
+                UnityEngine.Debug.Log($"{index}: {nodes[frontWheelIndex]}, {nodes[rearWheelIndex]}");
+            }
 
             float3 direction = GetSmoothHeartDirection(index);
             float3 lateral = GetSmoothHeartLateral(index);
             float3 normal = math.normalize(math.cross(direction, lateral));
-
-            float3 position = math.lerp(frontWheelPosition, rearWheelPosition, 0.5f);
             quaternion rotation = quaternion.LookRotation(direction, -normal);
 
             transform.position = position;

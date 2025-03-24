@@ -26,41 +26,9 @@ namespace CoasterForge {
         public int UpperLayers = 2;
         public int Resolution = 2;
 
-        private NativeList<Node> _nodes;
-
         private UnityEngine.Mesh[] _meshes;
-        private int _trackNodeCount;
+        private int _lastSolvedResolution;
         private bool _needsRebuild;
-        private bool _initialized;
-
-        private void Initialize() {
-            if (_initialized) {
-                Dispose();
-            }
-
-            _nodes = new NativeList<Node>(Allocator.Persistent);
-
-            var trackNodes = Track.Nodes;
-            _trackNodeCount = trackNodes.Length;
-            float nodeDistance = 0.7f / Resolution;
-            float distFromLast = nodeDistance;
-            for (int i = 0; i < trackNodes.Length - 1; i++) {
-                var node = trackNodes[i];
-                distFromLast += node.DistanceFromLast;
-                if (distFromLast >= nodeDistance) {
-                    distFromLast -= nodeDistance;
-                    _nodes.Add(node);
-                }
-            }
-
-            _initialized = true;
-        }
-
-        private void Dispose() {
-            if (!_initialized) return;
-            _nodes.Dispose();
-            _initialized = false;
-        }
 
         private void Start() {
             _meshes = new UnityEngine.Mesh[3];
@@ -78,11 +46,14 @@ namespace CoasterForge {
             TiesMeshFilter.mesh = _meshes[2];
         }
 
-        private void OnDestroy() {
-            Dispose();
-        }
-
         private void Update() {
+            if (Track.SolvedResolution != _lastSolvedResolution) {
+                _lastSolvedResolution = Track.SolvedResolution;
+                if (_lastSolvedResolution > 0) {
+                    RequestRebuild();
+                }
+            }
+
             if (_needsRebuild) {
                 Build();
                 _needsRebuild = false;
@@ -94,13 +65,23 @@ namespace CoasterForge {
         }
 
         private void Build() {
-            if (!_initialized || Track.Nodes.Length != _trackNodeCount) {
-                Initialize();
+            var nodes = new NativeList<Node>(Allocator.TempJob);
+
+            var trackNodes = Track.Nodes;
+            float nodeDistance = 0.7f / Resolution;
+            float distFromLast = nodeDistance;
+            for (int i = 0; i < trackNodes.Length - 1; i++) {
+                var node = trackNodes[i];
+                distFromLast += node.DistanceFromLast;
+                if (distFromLast >= nodeDistance) {
+                    distFromLast -= nodeDistance;
+                    nodes.Add(node);
+                }
             }
 
             var meshDataArray = UnityEngine.Mesh.AllocateWritableMeshData(3);
 
-            int nodeCount = _nodes.Length - 1;
+            int nodeCount = nodes.Length - 1;
 
             int topperQuadCount = nodeCount * 8 + 4;
             int topperVertexCount = topperQuadCount * 4;
@@ -110,7 +91,7 @@ namespace CoasterForge {
             int trackVertexCount = trackQuadCount * 4;
             int trackTriangleCount = trackQuadCount * 6;
 
-            int trackTieCount = nodeCount / Resolution;
+            int trackTieCount = (nodeCount + Resolution - 1) / Resolution;
             int tiesQuadCount = trackTieCount * 6;
             int tiesVertexCount = tiesQuadCount * 4;
             int tiesTriangleCount = tiesQuadCount * 6;
@@ -124,7 +105,7 @@ namespace CoasterForge {
             );
             topperMeshData.SetIndexBufferParams(
                 topperTriangleCount,
-                IndexFormat.UInt16
+                IndexFormat.UInt32
             );
 
             var trackMeshData = meshDataArray[1];
@@ -136,7 +117,7 @@ namespace CoasterForge {
             );
             trackMeshData.SetIndexBufferParams(
                 trackTriangleCount,
-                IndexFormat.UInt16
+                IndexFormat.UInt32
             );
 
             var tiesMeshData = meshDataArray[2];
@@ -148,12 +129,12 @@ namespace CoasterForge {
             );
             tiesMeshData.SetIndexBufferParams(
                 tiesTriangleCount,
-                IndexFormat.UInt16
+                IndexFormat.UInt32
             );
 
             new BuildJob {
                 MeshDataArray = meshDataArray,
-                Nodes = _nodes.AsArray(),
+                Nodes = nodes.AsArray(),
                 StartOffset = StartOffset,
                 TrackGauge = TrackGauge,
                 TopperWidth = TopperWidth,
@@ -174,6 +155,8 @@ namespace CoasterForge {
             _meshes[0].RecalculateBounds();
             _meshes[1].RecalculateBounds();
             _meshes[2].RecalculateBounds();
+
+            nodes.Dispose();
         }
 
         [BurstCompile]
@@ -244,7 +227,7 @@ namespace CoasterForge {
                 var vertices = topperMeshData.GetVertexData<float3>(0);
                 var normals = topperMeshData.GetVertexData<float3>(1);
                 var uvs = topperMeshData.GetVertexData<float2>(2);
-                var triangles = topperMeshData.GetIndexData<ushort>();
+                var triangles = topperMeshData.GetIndexData<uint>();
 
                 int vertexIndex = 0;
                 int triangleIndex = 0;
@@ -276,10 +259,10 @@ namespace CoasterForge {
                     uvs[vertexIndex + 2] = new float2(0f, 1f);
                     uvs[vertexIndex + 3] = new float2(1f, 1f);
 
-                    ushort bli = (ushort)vertexIndex;
-                    ushort bri = (ushort)(vertexIndex + 1);
-                    ushort tli = (ushort)(vertexIndex + 2);
-                    ushort tri = (ushort)(vertexIndex + 3);
+                    uint bli = (uint)vertexIndex;
+                    uint bri = (uint)(vertexIndex + 1);
+                    uint tli = (uint)(vertexIndex + 2);
+                    uint tri = (uint)(vertexIndex + 3);
 
                     triangles[triangleIndex] = bli;
                     triangles[triangleIndex + 1] = tli;
@@ -343,7 +326,7 @@ namespace CoasterForge {
                 var vertices = trackMeshData.GetVertexData<float3>(0);
                 var normals = trackMeshData.GetVertexData<float3>(1);
                 var uvs = trackMeshData.GetVertexData<float2>(2);
-                var triangles = trackMeshData.GetIndexData<ushort>();
+                var triangles = trackMeshData.GetIndexData<uint>();
 
                 int vertexIndex = 0;
                 int triangleIndex = 0;
@@ -383,10 +366,10 @@ namespace CoasterForge {
                     uvs[vertexIndex + 2] = new float2(0f, 1f);
                     uvs[vertexIndex + 3] = new float2(1f, 1f);
 
-                    ushort bli = (ushort)vertexIndex;
-                    ushort bri = (ushort)(vertexIndex + 1);
-                    ushort tli = (ushort)(vertexIndex + 2);
-                    ushort tri = (ushort)(vertexIndex + 3);
+                    uint bli = (uint)vertexIndex;
+                    uint bri = (uint)(vertexIndex + 1);
+                    uint tli = (uint)(vertexIndex + 2);
+                    uint tri = (uint)(vertexIndex + 3);
 
                     triangles[triangleIndex] = bli;
                     triangles[triangleIndex + 1] = tli;
@@ -465,7 +448,7 @@ namespace CoasterForge {
                 var vertices = tiesMeshData.GetVertexData<float3>(0);
                 var normals = tiesMeshData.GetVertexData<float3>(1);
                 var uvs = tiesMeshData.GetVertexData<float2>(2);
-                var triangles = tiesMeshData.GetIndexData<ushort>();
+                var triangles = tiesMeshData.GetIndexData<uint>();
 
                 int vertexIndex = 0;
                 int triangleIndex = 0;
@@ -505,10 +488,10 @@ namespace CoasterForge {
                     uvs[vertexIndex + 2] = new float2(0f, 1f);
                     uvs[vertexIndex + 3] = new float2(1f, 1f);
 
-                    ushort bli = (ushort)vertexIndex;
-                    ushort bri = (ushort)(vertexIndex + 1);
-                    ushort tli = (ushort)(vertexIndex + 2);
-                    ushort tri = (ushort)(vertexIndex + 3);
+                    uint bli = (uint)vertexIndex;
+                    uint bri = (uint)(vertexIndex + 1);
+                    uint tli = (uint)(vertexIndex + 2);
+                    uint tri = (uint)(vertexIndex + 3);
 
                     triangles[triangleIndex] = bli;
                     triangles[triangleIndex + 1] = tli;
@@ -532,8 +515,7 @@ namespace CoasterForge {
                 }
 
                 for (int i = 0; i < Nodes.Length - 1; i += Resolution) {
-                    var prev = Nodes[i];
-                    var current = Nodes[i + 1];
+                    var node = Nodes[i];
 
                     float topY = heart - TopperThickness - TwoByTenThickness * UpperLayers - TwoByTenThickness * LowerLayers;
                     var tieTopBL = new float3(-TieWidth / 2f, topY, 0f);
@@ -547,12 +529,12 @@ namespace CoasterForge {
                     var tieBottomTL = new float3(-TieWidth / 2f, bottomY, TieThickness);
                     var tieBottomTR = new float3(TieWidth / 2f, bottomY, TieThickness);
 
-                    AddTransverseQuad(prev, tieTopBL, tieTopTL, tieTopBR, tieTopTR); // Top
-                    AddTransverseQuad(prev, tieBottomTL, tieBottomBL, tieBottomTR, tieBottomBR); //Bottom
-                    AddTransverseQuad(prev, tieTopBL, tieTopBR, tieBottomBL, tieBottomBR); // Front
-                    AddTransverseQuad(prev, tieBottomTL, tieBottomTR, tieTopTL, tieTopTR); // Back
-                    AddTransverseQuad(prev, tieTopTL, tieTopBL, tieBottomTL, tieBottomBL); // Left
-                    AddTransverseQuad(prev, tieBottomTR, tieBottomBR, tieTopTR, tieTopBR); // Right
+                    AddTransverseQuad(node, tieTopBL, tieTopTL, tieTopBR, tieTopTR); // Top
+                    AddTransverseQuad(node, tieBottomTL, tieBottomBL, tieBottomTR, tieBottomBR); //Bottom
+                    AddTransverseQuad(node, tieTopBL, tieTopBR, tieBottomBL, tieBottomBR); // Front
+                    AddTransverseQuad(node, tieBottomTL, tieBottomTR, tieTopTL, tieTopTR); // Back
+                    AddTransverseQuad(node, tieTopTL, tieTopBL, tieBottomTL, tieBottomBL); // Left
+                    AddTransverseQuad(node, tieBottomTR, tieBottomBR, tieTopTR, tieTopBR); // Right
                 }
 
                 tiesMeshData.subMeshCount = 1;
