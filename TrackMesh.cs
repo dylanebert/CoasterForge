@@ -144,8 +144,8 @@ namespace CoasterForge {
 
             var nodes = Track.Nodes;
 
-            var trackNodes = new NativeList<Node>(Allocator.TempJob);
-            var tieNodes = new NativeList<Node>(Allocator.TempJob);
+            var trackNodes = new NativeList<Node>(Track.Nodes.Length, Allocator.TempJob);
+            var tieNodes = new NativeList<Node>(Track.Nodes.Length, Allocator.TempJob);
             new CopyNodesJob {
                 TrackNodes = trackNodes,
                 TieNodes = tieNodes,
@@ -256,6 +256,7 @@ namespace CoasterForge {
                 float nodeDistance = 0.7f / Resolution;
                 float distFromLast = nodeDistance;
                 int count = 0;
+                int tieCount = 0;
                 for (int i = 0; i < Nodes.Length - 1; i++) {
                     var node = Nodes[i];
                     distFromLast += node.DistanceFromLast;
@@ -263,11 +264,15 @@ namespace CoasterForge {
                         distFromLast -= nodeDistance;
                         if (count % Resolution == 0) {
                             TieNodes.Add(node);
+                            tieCount++;
                         }
                         TrackNodes.Add(node);
                         count++;
                     }
                 }
+
+                TrackNodes.ResizeUninitialized(count);
+                TieNodes.ResizeUninitialized(tieCount);
             }
         }
 
