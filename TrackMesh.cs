@@ -78,7 +78,7 @@ namespace CoasterForge {
         private void Build() {
             var trackNodes = Track.Nodes;
 
-            var nodes = new NativeList<Node>(Allocator.TempJob);
+            var nodes = new NativeList<Node>(trackNodes.Length, Allocator.TempJob);
             new CopyNodesJob {
                 Nodes = nodes,
                 TrackNodes = trackNodes,
@@ -179,14 +179,18 @@ namespace CoasterForge {
             public void Execute() {
                 float nodeDistance = 0.7f / Resolution;
                 float distFromLast = nodeDistance;
+                int count = 0;
                 for (int i = 0; i < TrackNodes.Length - 1; i++) {
                     var node = TrackNodes[i];
                     distFromLast += node.DistanceFromLast;
                     if (distFromLast >= nodeDistance) {
                         distFromLast -= nodeDistance;
                         Nodes.Add(node);
+                        count++;
                     }
                 }
+
+                Nodes.ResizeUninitialized(count);
             }
         }
 
