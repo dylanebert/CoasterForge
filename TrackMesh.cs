@@ -9,8 +9,8 @@ using Node = CoasterForge.Track.Node;
 namespace CoasterForge {
     public class TrackMesh : UnityEngine.MonoBehaviour {
         public Track Track;
-        public UnityEngine.MeshFilter TopperMeshFilter;
-        public UnityEngine.MeshFilter TrackMeshFilter;
+        public UnityEngine.Material TopperMaterial;
+        public UnityEngine.Material TrackMaterial;
         public float StartOffset = 0.35f;
         public float TrackGauge = 1.0865f;
         public float TopperThickness = 0.011f;
@@ -25,20 +25,95 @@ namespace CoasterForge {
         public int UpperLayers = 2;
         public int Resolution = 2;
 
-        private UnityEngine.Mesh[] _meshes;
+        private UnityEngine.Mesh[] _trackMeshes;
+        private UnityEngine.Mesh _tieMesh;
+        private NativeArray<UnityEngine.Matrix4x4> _tieMatrices;
         private int _lastSolvedResolution;
         private bool _needsRebuild;
 
         private void Start() {
-            _meshes = new UnityEngine.Mesh[2];
-            _meshes[0] = new UnityEngine.Mesh {
+            _tieMatrices = new NativeArray<UnityEngine.Matrix4x4>(0, Allocator.Persistent);
+
+            _trackMeshes = new UnityEngine.Mesh[2];
+            _trackMeshes[0] = new UnityEngine.Mesh {
                 name = "Topper",
             };
-            _meshes[1] = new UnityEngine.Mesh {
+            _trackMeshes[1] = new UnityEngine.Mesh {
                 name = "Track",
             };
-            TopperMeshFilter.mesh = _meshes[0];
-            TrackMeshFilter.mesh = _meshes[1];
+
+            var topper = new UnityEngine.GameObject("Topper");
+            var topperMeshFilter = topper.AddComponent<UnityEngine.MeshFilter>();
+            topper.AddComponent<UnityEngine.MeshRenderer>().sharedMaterial = TopperMaterial;
+            topperMeshFilter.mesh = _trackMeshes[0];
+
+            var track = new UnityEngine.GameObject("Track");
+            var trackMeshFilter = track.AddComponent<UnityEngine.MeshFilter>();
+            track.AddComponent<UnityEngine.MeshRenderer>().sharedMaterial = TrackMaterial;
+            trackMeshFilter.mesh = _trackMeshes[1];
+
+            var tieMeshVertices = new NativeArray<float3>(6 * 4, Allocator.Temp);
+            var tieMeshTriangles = new NativeArray<ushort>(6 * 6, Allocator.Temp);
+
+            float3 ubl = new(-TieWidth / 2f, 0f, 0f);
+            float3 ubr = new(TieWidth / 2f, 0f, 0f);
+            float3 utl = new(-TieWidth / 2f, 0f, TieThickness);
+            float3 utr = new(TieWidth / 2f, 0f, TieThickness);
+
+            float3 lbl = new(-TieWidth / 2f, -TieThickness, 0f);
+            float3 lbr = new(TieWidth / 2f, -TieThickness, 0f);
+            float3 ltl = new(-TieWidth / 2f, -TieThickness, TieThickness);
+            float3 ltr = new(TieWidth / 2f, -TieThickness, TieThickness);
+
+            int vertexIndex = 0;
+            int triangleIndex = 0;
+
+            void AddQuad(float3 bl, float3 br, float3 tl, float3 tr) {
+                tieMeshVertices[vertexIndex] = bl;
+                tieMeshVertices[vertexIndex + 1] = br;
+                tieMeshVertices[vertexIndex + 2] = tl;
+                tieMeshVertices[vertexIndex + 3] = tr;
+
+                ushort bli = (ushort)vertexIndex;
+                ushort bri = (ushort)(vertexIndex + 1);
+                ushort tli = (ushort)(vertexIndex + 2);
+                ushort tri = (ushort)(vertexIndex + 3);
+
+                tieMeshTriangles[triangleIndex] = bli;
+                tieMeshTriangles[triangleIndex + 1] = tli;
+                tieMeshTriangles[triangleIndex + 2] = tri;
+
+                tieMeshTriangles[triangleIndex + 3] = bli;
+                tieMeshTriangles[triangleIndex + 4] = tri;
+                tieMeshTriangles[triangleIndex + 5] = bri;
+
+                vertexIndex += 4;
+                triangleIndex += 6;
+            }
+
+            AddQuad(ubl, ubr, utl, utr); // Top
+            AddQuad(ltl, ltr, lbl, lbr); // Bottom
+            AddQuad(ltl, lbl, utl, ubl); // Left
+            AddQuad(utr, ubr, ltr, lbr); // Right
+            AddQuad(lbl, lbr, ubl, ubr); // Front
+            AddQuad(utl, utr, ltl, ltr); // Back
+
+            _tieMesh = new UnityEngine.Mesh {
+                name = "Ties",
+                indexFormat = IndexFormat.UInt16,
+            };
+            _tieMesh.SetVertices(tieMeshVertices);
+            _tieMesh.SetIndices(tieMeshTriangles, UnityEngine.MeshTopology.Triangles, 0);
+
+            _tieMesh.RecalculateNormals();
+            _tieMesh.RecalculateBounds();
+
+            tieMeshVertices.Dispose();
+            tieMeshTriangles.Dispose();
+        }
+
+        private void OnDestroy() {
+            _tieMatrices.Dispose();
         }
 
         private void Update() {
@@ -53,6 +128,11 @@ namespace CoasterForge {
                 Build();
                 _needsRebuild = false;
             }
+
+            if (_tieMatrices.Length > 0) {
+                UnityEngine.RenderParams rp = new(TrackMaterial);
+                UnityEngine.Graphics.RenderMeshInstanced(rp, _tieMesh, 0, _tieMatrices);
+            }
         }
 
         public void RequestRebuild() {
@@ -60,18 +140,22 @@ namespace CoasterForge {
         }
 
         private void Build() {
-            var trackNodes = Track.Nodes;
+            _tieMatrices.Dispose();
 
-            var nodes = new NativeList<Node>(Allocator.TempJob);
+            var nodes = Track.Nodes;
+
+            var trackNodes = new NativeList<Node>(Allocator.TempJob);
+            var tieNodes = new NativeList<Node>(Allocator.TempJob);
             new CopyNodesJob {
-                Nodes = nodes,
                 TrackNodes = trackNodes,
+                TieNodes = tieNodes,
+                Nodes = nodes,
                 Resolution = Resolution,
             }.Schedule().Complete();
 
             var meshDataArray = UnityEngine.Mesh.AllocateWritableMeshData(2);
 
-            int nodeCount = nodes.Length - 1;
+            int nodeCount = trackNodes.Length - 1;
 
             int topperQuadCount = nodeCount * 8 + 4;
             int topperVertexCount = topperQuadCount * 4;
@@ -108,9 +192,9 @@ namespace CoasterForge {
             int batchCount = 8;
             int batchSize = (nodeCount + batchCount - 1) / batchCount;
 
-            new BuildJob {
+            new BuildTrackMeshJob {
                 MeshDataArray = meshDataArray,
-                Nodes = nodes.AsArray(),
+                TrackNodes = trackNodes.AsArray(),
                 StartOffset = StartOffset,
                 TrackGauge = TrackGauge,
                 TopperWidth = TopperWidth,
@@ -119,8 +203,6 @@ namespace CoasterForge {
                 TwoByTenThickness = TwoByTenThickness,
                 UpperLayersGauge = UpperLayersGauge,
                 LowerLayersGauge = LowerLayersGauge,
-                TieWidth = TieWidth,
-                TieThickness = TieThickness,
                 UpperLayers = UpperLayers,
                 LowerLayers = LowerLayers,
                 Resolution = Resolution,
@@ -134,21 +216,38 @@ namespace CoasterForge {
             trackMeshData.subMeshCount = 1;
             trackMeshData.SetSubMesh(0, new SubMeshDescriptor(0, trackTriangleCount));
 
-            UnityEngine.Mesh.ApplyAndDisposeWritableMeshData(meshDataArray, _meshes);
+            UnityEngine.Mesh.ApplyAndDisposeWritableMeshData(meshDataArray, _trackMeshes);
 
-            _meshes[0].RecalculateBounds();
-            _meshes[1].RecalculateBounds();
+            _trackMeshes[0].RecalculateBounds();
+            _trackMeshes[1].RecalculateBounds();
 
-            nodes.Dispose();
+            trackNodes.Dispose();
+
+            _tieMatrices = new NativeArray<UnityEngine.Matrix4x4>(tieNodes.Length, Allocator.Persistent);
+            new BuildTiesJob {
+                Matrices = _tieMatrices,
+                TieNodes = tieNodes.AsArray(),
+                StartOffset = StartOffset,
+                TopperThickness = TopperThickness,
+                TwoByTenThickness = TwoByTenThickness,
+                TieThickness = TieThickness,
+                UpperLayers = UpperLayers,
+                LowerLayers = LowerLayers,
+            }.Schedule(tieNodes.Length, tieNodes.Length / 64).Complete();
+
+            tieNodes.Dispose();
         }
 
         [BurstCompile]
         private struct CopyNodesJob : IJob {
             [WriteOnly]
-            public NativeList<Node> Nodes;
+            public NativeList<Node> TrackNodes;
+
+            [WriteOnly]
+            public NativeList<Node> TieNodes;
 
             [ReadOnly]
-            public NativeArray<Node> TrackNodes;
+            public NativeArray<Node> Nodes;
 
             [ReadOnly]
             public int Resolution;
@@ -156,24 +255,29 @@ namespace CoasterForge {
             public void Execute() {
                 float nodeDistance = 0.7f / Resolution;
                 float distFromLast = nodeDistance;
-                for (int i = 0; i < TrackNodes.Length - 1; i++) {
-                    var node = TrackNodes[i];
+                int count = 0;
+                for (int i = 0; i < Nodes.Length - 1; i++) {
+                    var node = Nodes[i];
                     distFromLast += node.DistanceFromLast;
                     if (distFromLast >= nodeDistance) {
                         distFromLast -= nodeDistance;
-                        Nodes.Add(node);
+                        if (count % Resolution == 0) {
+                            TieNodes.Add(node);
+                        }
+                        TrackNodes.Add(node);
+                        count++;
                     }
                 }
             }
         }
 
         [BurstCompile]
-        private struct BuildJob : IJobParallelFor {
+        private struct BuildTrackMeshJob : IJobParallelFor {
             [NativeDisableParallelForRestriction]
             public UnityEngine.Mesh.MeshDataArray MeshDataArray;
 
             [ReadOnly]
-            public NativeArray<Node> Nodes;
+            public NativeArray<Node> TrackNodes;
 
             [ReadOnly]
             public float StartOffset;
@@ -198,12 +302,6 @@ namespace CoasterForge {
 
             [ReadOnly]
             public float LowerLayersGauge;
-
-            [ReadOnly]
-            public float TieWidth;
-
-            [ReadOnly]
-            public float TieThickness;
 
             [ReadOnly]
             public int UpperLayers;
@@ -257,10 +355,10 @@ namespace CoasterForge {
                 var topperRightTR = new float3(TrackGauge / 2f - TopperWidth / 2f, heart, 0);
 
                 int start = batchIndex * BatchSize;
-                int end = math.min(start + BatchSize, Nodes.Length - 1);
+                int end = math.min(start + BatchSize, TrackNodes.Length - 1);
                 for (int i = start; i < end; i++) {
-                    var prev = Nodes[i];
-                    var current = Nodes[i + 1];
+                    var prev = TrackNodes[i];
+                    var current = TrackNodes[i + 1];
 
                     AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftBL, topperLeftBR);
                     AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftBR, topperLeftTL);
@@ -274,8 +372,8 @@ namespace CoasterForge {
                 }
 
                 if (batchIndex == BatchCount - 1) {
-                    Node first = Nodes[0];
-                    Node last = Nodes[^1];
+                    Node first = TrackNodes[0];
+                    Node last = TrackNodes[^1];
 
                     AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, topperLeftBL, topperLeftTR, topperLeftBR, topperLeftTL);
                     AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, topperRightBL, topperRightTR, topperRightBR, topperRightTL);
@@ -314,10 +412,10 @@ namespace CoasterForge {
                 var lowerLayersRightTR = new float3(LowerLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
 
                 int start = batchIndex * BatchSize;
-                int end = math.min(start + BatchSize, Nodes.Length - 1);
+                int end = math.min(start + BatchSize, TrackNodes.Length - 1);
                 for (int i = start; i < end; i++) {
-                    var prev = Nodes[i];
-                    var current = Nodes[i + 1];
+                    var prev = TrackNodes[i];
+                    var current = TrackNodes[i + 1];
 
                     AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftBL, upperLayersLeftBR);
                     AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftBR, upperLayersLeftTL);
@@ -341,8 +439,8 @@ namespace CoasterForge {
                 }
 
                 if (batchIndex == BatchCount - 1) {
-                    Node first = Nodes[0];
-                    Node last = Nodes[^1];
+                    Node first = TrackNodes[0];
+                    Node last = TrackNodes[^1];
 
                     AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, upperLayersLeftBL, upperLayersLeftTR, upperLayersLeftBR, upperLayersLeftTL);
                     AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, upperLayersRightBL, upperLayersRightTR, upperLayersRightBR, upperLayersRightTL);
@@ -355,106 +453,6 @@ namespace CoasterForge {
                     AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, last, lowerLayersRightBL, lowerLayersRightBR, lowerLayersRightTR, lowerLayersRightTL);
                 }
             }
-
-            /* private void BuildTies(int batchIndex) {
-                var tiesMeshData = MeshDataArray[2];
-                var vertices = tiesMeshData.GetVertexData<float3>(0);
-                var normals = tiesMeshData.GetVertexData<float3>(1);
-                var uvs = tiesMeshData.GetVertexData<float2>(2);
-                var triangles = tiesMeshData.GetIndexData<uint>();
-
-                int tieCount = (Nodes.Length + Resolution - 1) / Resolution;
-                int tieBatchSize = tieCount / BatchCount;
-                int quadIndex = batchIndex * tieBatchSize * 6;
-                int vertexIndex = quadIndex * 4;
-                int triangleIndex = quadIndex * 6;
-
-                float heart = StartOffset - HEART;
-                var upperLayersLeftBL = new float3(-UpperLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
-                var upperLayersLeftBR = new float3(-UpperLayersGauge / 2f + TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
-                var upperLayersLeftTL = new float3(-UpperLayersGauge / 2f + TwoByTenWidth / 2f, heart - TopperThickness, 0);
-                var upperLayersLeftTR = new float3(-UpperLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness, 0);
-                var upperLayersRightBL = new float3(UpperLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
-                var upperLayersRightBR = new float3(UpperLayersGauge / 2f + TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
-                var upperLayersRightTL = new float3(UpperLayersGauge / 2f + TwoByTenWidth / 2f, heart - TopperThickness, 0);
-                var upperLayersRightTR = new float3(UpperLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness, 0);
-                var lowerLayersLeftBL = new float3(-LowerLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers - TwoByTenThickness * LowerLayers, 0);
-                var lowerLayersLeftBR = new float3(-LowerLayersGauge / 2f + TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers - TwoByTenThickness * LowerLayers, 0);
-                var lowerLayersLeftTL = new float3(-LowerLayersGauge / 2f + TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
-                var lowerLayersLeftTR = new float3(-LowerLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
-                var lowerLayersRightBL = new float3(LowerLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers - TwoByTenThickness * LowerLayers, 0);
-                var lowerLayersRightBR = new float3(LowerLayersGauge / 2f + TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers - TwoByTenThickness * LowerLayers, 0);
-                var lowerLayersRightTL = new float3(LowerLayersGauge / 2f + TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
-                var lowerLayersRightTR = new float3(LowerLayersGauge / 2f - TwoByTenWidth / 2f, heart - TopperThickness - TwoByTenThickness * UpperLayers, 0);
-
-                void AddQuad(float3 bl, float3 br, float3 tl, float3 tr) {
-                    vertices[vertexIndex] = bl;
-                    vertices[vertexIndex + 1] = br;
-                    vertices[vertexIndex + 2] = tl;
-                    vertices[vertexIndex + 3] = tr;
-
-                    float3 normal = math.normalize(math.cross(tl - bl, br - bl));
-                    normals[vertexIndex] = normal;
-                    normals[vertexIndex + 1] = normal;
-                    normals[vertexIndex + 2] = normal;
-                    normals[vertexIndex + 3] = normal;
-
-                    uvs[vertexIndex] = float2.zero;
-                    uvs[vertexIndex + 1] = new float2(1f, 0f);
-                    uvs[vertexIndex + 2] = new float2(0f, 1f);
-                    uvs[vertexIndex + 3] = new float2(1f, 1f);
-
-                    uint bli = (uint)vertexIndex;
-                    uint bri = (uint)(vertexIndex + 1);
-                    uint tli = (uint)(vertexIndex + 2);
-                    uint tri = (uint)(vertexIndex + 3);
-
-                    triangles[triangleIndex] = bli;
-                    triangles[triangleIndex + 1] = tli;
-                    triangles[triangleIndex + 2] = tri;
-
-                    triangles[triangleIndex + 3] = bli;
-                    triangles[triangleIndex + 4] = tri;
-                    triangles[triangleIndex + 5] = bri;
-
-                    vertexIndex += 4;
-                    triangleIndex += 6;
-                }
-
-                void AddTransverseQuad(Node node, float3 bl, float3 br, float3 tl, float3 tr) {
-                    float3 bl2 = node.GetRelativePosition(bl);
-                    float3 br2 = node.GetRelativePosition(br);
-                    float3 tl2 = node.GetRelativePosition(tl);
-                    float3 tr2 = node.GetRelativePosition(tr);
-
-                    AddQuad(bl2, br2, tl2, tr2);
-                }
-
-                int start = batchIndex * tieBatchSize;
-                int end = math.min(start + tieBatchSize, Nodes.Length - 1);
-                for (int i = start; i < end; i += Resolution) {
-                    var node = Nodes[i];
-
-                    float topY = heart - TopperThickness - TwoByTenThickness * UpperLayers - TwoByTenThickness * LowerLayers;
-                    var tieTopBL = new float3(-TieWidth / 2f, topY, 0f);
-                    var tieTopBR = new float3(TieWidth / 2f, topY, 0f);
-                    var tieTopTL = new float3(-TieWidth / 2f, topY, TieThickness);
-                    var tieTopTR = new float3(TieWidth / 2f, topY, TieThickness);
-
-                    float bottomY = topY - TieThickness;
-                    var tieBottomBL = new float3(-TieWidth / 2f, bottomY, 0f);
-                    var tieBottomBR = new float3(TieWidth / 2f, bottomY, 0f);
-                    var tieBottomTL = new float3(-TieWidth / 2f, bottomY, TieThickness);
-                    var tieBottomTR = new float3(TieWidth / 2f, bottomY, TieThickness);
-
-                    AddTransverseQuad(node, tieTopBL, tieTopTL, tieTopBR, tieTopTR); // Top
-                    AddTransverseQuad(node, tieBottomTL, tieBottomBL, tieBottomTR, tieBottomBR); //Bottom
-                    AddTransverseQuad(node, tieTopBL, tieTopBR, tieBottomBL, tieBottomBR); // Front
-                    AddTransverseQuad(node, tieBottomTL, tieBottomTR, tieTopTL, tieTopTR); // Back
-                    AddTransverseQuad(node, tieTopTL, tieTopBL, tieBottomTL, tieBottomBL); // Left
-                    AddTransverseQuad(node, tieBottomTR, tieBottomBR, tieTopTR, tieTopBR); // Right
-                }
-            } */
 
             private void AddQuad(
                 ref NativeArray<float3> vertices,
@@ -527,6 +525,46 @@ namespace CoasterForge {
                 float3 tr2 = node.GetRelativePosition(tr);
 
                 AddQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, bl2, br2, tl2, tr2);
+            }
+        }
+
+        [BurstCompile]
+        private struct BuildTiesJob : IJobParallelFor {
+            [WriteOnly]
+            public NativeArray<UnityEngine.Matrix4x4> Matrices;
+
+            [ReadOnly]
+            public NativeArray<Node> TieNodes;
+
+            [ReadOnly]
+            public float StartOffset;
+
+            [ReadOnly]
+            public float TopperThickness;
+
+            [ReadOnly]
+            public float TwoByTenThickness;
+
+            [ReadOnly]
+            public float TieThickness;
+
+            [ReadOnly]
+            public int UpperLayers;
+
+            [ReadOnly]
+            public int LowerLayers;
+
+            public void Execute(int index) {
+                var node = TieNodes[index];
+                float heart = StartOffset - HEART - TopperThickness - TwoByTenThickness * (UpperLayers + LowerLayers) - TieThickness;
+                float3 position = node.GetHeartPosition(-heart);
+
+                float3 forward = node.GetHeartDirection(-heart);
+                float3 lateral = node.GetHeartLateral(-heart);
+                float3 up = math.normalize(math.cross(forward, lateral));
+                quaternion rotation = quaternion.LookRotation(forward, up);
+
+                Matrices[index] = UnityEngine.Matrix4x4.TRS(position, rotation, UnityEngine.Vector3.one);
             }
         }
     }
