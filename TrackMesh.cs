@@ -1,6 +1,5 @@
 using Unity.Burst;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine.Rendering;
@@ -110,14 +109,7 @@ namespace CoasterForge {
             int batchSize = (nodeCount + batchCount - 1) / batchCount;
 
             new BuildJob {
-                TopperVertices = topperMeshData.GetVertexData<float3>(0),
-                TopperNormals = topperMeshData.GetVertexData<float3>(1),
-                TopperUVs = topperMeshData.GetVertexData<float2>(2),
-                TopperTriangles = topperMeshData.GetIndexData<uint>(),
-                TrackVertices = trackMeshData.GetVertexData<float3>(0),
-                TrackNormals = trackMeshData.GetVertexData<float3>(1),
-                TrackUVs = trackMeshData.GetVertexData<float2>(2),
-                TrackTriangles = trackMeshData.GetIndexData<uint>(),
+                MeshDataArray = meshDataArray,
                 Nodes = nodes.AsArray(),
                 StartOffset = StartOffset,
                 TrackGauge = TrackGauge,
@@ -177,29 +169,8 @@ namespace CoasterForge {
 
         [BurstCompile]
         private struct BuildJob : IJobParallelFor {
-            [WriteOnly, NativeDisableContainerSafetyRestriction]
-            public NativeArray<float3> TopperVertices;
-
-            [WriteOnly, NativeDisableContainerSafetyRestriction]
-            public NativeArray<float3> TopperNormals;
-
-            [WriteOnly, NativeDisableContainerSafetyRestriction]
-            public NativeArray<float2> TopperUVs;
-
-            [WriteOnly, NativeDisableContainerSafetyRestriction]
-            public NativeArray<uint> TopperTriangles;
-
-            [WriteOnly, NativeDisableContainerSafetyRestriction]
-            public NativeArray<float3> TrackVertices;
-
-            [WriteOnly, NativeDisableContainerSafetyRestriction]
-            public NativeArray<float3> TrackNormals;
-
-            [WriteOnly, NativeDisableContainerSafetyRestriction]
-            public NativeArray<float2> TrackUVs;
-
-            [WriteOnly, NativeDisableContainerSafetyRestriction]
-            public NativeArray<uint> TrackTriangles;
+            [NativeDisableParallelForRestriction]
+            public UnityEngine.Mesh.MeshDataArray MeshDataArray;
 
             [ReadOnly]
             public NativeArray<Node> Nodes;
@@ -265,6 +236,12 @@ namespace CoasterForge {
             }
 
             private void BuildTopper(int batchIndex) {
+                var topperMeshData = MeshDataArray[0];
+                var vertices = topperMeshData.GetVertexData<float3>(0);
+                var normals = topperMeshData.GetVertexData<float3>(1);
+                var uvs = topperMeshData.GetVertexData<float2>(2);
+                var triangles = topperMeshData.GetIndexData<uint>();
+
                 int quadIndex = batchIndex * BatchSize * 8;
                 int vertexIndex = quadIndex * 4;
                 int triangleIndex = quadIndex * 6;
@@ -285,29 +262,35 @@ namespace CoasterForge {
                     var prev = Nodes[i];
                     var current = Nodes[i + 1];
 
-                    AddLongitudinalQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftBL, topperLeftBR);
-                    AddLongitudinalQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftBR, topperLeftTL);
-                    AddLongitudinalQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftTL, topperLeftTR);
-                    AddLongitudinalQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftTR, topperLeftBL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftBL, topperLeftBR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftBR, topperLeftTL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftTL, topperLeftTR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperLeftTR, topperLeftBL);
 
-                    AddLongitudinalQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, prev, current, topperRightBL, topperRightBR);
-                    AddLongitudinalQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, prev, current, topperRightBR, topperRightTL);
-                    AddLongitudinalQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, prev, current, topperRightTL, topperRightTR);
-                    AddLongitudinalQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, prev, current, topperRightTR, topperRightBL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperRightBL, topperRightBR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperRightBR, topperRightTL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperRightTL, topperRightTR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, topperRightTR, topperRightBL);
                 }
 
                 if (batchIndex == BatchCount - 1) {
                     Node first = Nodes[0];
                     Node last = Nodes[^1];
 
-                    AddTransverseQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, first, topperLeftBL, topperLeftTR, topperLeftBR, topperLeftTL);
-                    AddTransverseQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, first, topperRightBL, topperRightTR, topperRightBR, topperRightTL);
-                    AddTransverseQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, last, topperLeftBL, topperLeftBR, topperLeftTR, topperLeftTL);
-                    AddTransverseQuad(ref TopperVertices, ref TopperNormals, ref TopperUVs, ref TopperTriangles, ref vertexIndex, ref triangleIndex, last, topperRightBL, topperRightBR, topperRightTR, topperRightTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, topperLeftBL, topperLeftTR, topperLeftBR, topperLeftTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, topperRightBL, topperRightTR, topperRightBR, topperRightTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, last, topperLeftBL, topperLeftBR, topperLeftTR, topperLeftTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, last, topperRightBL, topperRightBR, topperRightTR, topperRightTL);
                 }
             }
 
             private void BuildTrack(int batchIndex) {
+                var trackMeshData = MeshDataArray[1];
+                var vertices = trackMeshData.GetVertexData<float3>(0);
+                var normals = trackMeshData.GetVertexData<float3>(1);
+                var uvs = trackMeshData.GetVertexData<float2>(2);
+                var triangles = trackMeshData.GetIndexData<uint>();
+
                 int quadIndex = batchIndex * BatchSize * 16;
                 int vertexIndex = quadIndex * 4;
                 int triangleIndex = quadIndex * 6;
@@ -336,40 +319,40 @@ namespace CoasterForge {
                     var prev = Nodes[i];
                     var current = Nodes[i + 1];
 
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftBL, upperLayersLeftBR);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftBR, upperLayersLeftTL);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftTL, upperLayersLeftTR);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftTR, upperLayersLeftBL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftBL, upperLayersLeftBR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftBR, upperLayersLeftTL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftTL, upperLayersLeftTR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersLeftTR, upperLayersLeftBL);
 
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersRightBL, upperLayersRightBR);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersRightBR, upperLayersRightTL);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersRightTL, upperLayersRightTR);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersRightTR, upperLayersRightBL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersRightBL, upperLayersRightBR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersRightBR, upperLayersRightTL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersRightTL, upperLayersRightTR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, upperLayersRightTR, upperLayersRightBL);
 
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersLeftBL, lowerLayersLeftBR);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersLeftBR, lowerLayersLeftTL);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersLeftTL, lowerLayersLeftTR);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersLeftTR, lowerLayersLeftBL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersLeftBL, lowerLayersLeftBR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersLeftBR, lowerLayersLeftTL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersLeftTL, lowerLayersLeftTR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersLeftTR, lowerLayersLeftBL);
 
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersRightBL, lowerLayersRightBR);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersRightBR, lowerLayersRightTL);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersRightTL, lowerLayersRightTR);
-                    AddLongitudinalQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersRightTR, lowerLayersRightBL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersRightBL, lowerLayersRightBR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersRightBR, lowerLayersRightTL);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersRightTL, lowerLayersRightTR);
+                    AddLongitudinalQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, prev, current, lowerLayersRightTR, lowerLayersRightBL);
                 }
 
                 if (batchIndex == BatchCount - 1) {
                     Node first = Nodes[0];
                     Node last = Nodes[^1];
 
-                    AddTransverseQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, first, upperLayersLeftBL, upperLayersLeftTR, upperLayersLeftBR, upperLayersLeftTL);
-                    AddTransverseQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, first, upperLayersRightBL, upperLayersRightTR, upperLayersRightBR, upperLayersRightTL);
-                    AddTransverseQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, last, upperLayersLeftBL, upperLayersLeftBR, upperLayersLeftTR, upperLayersLeftTL);
-                    AddTransverseQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, last, upperLayersRightBL, upperLayersRightBR, upperLayersRightTR, upperLayersRightTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, upperLayersLeftBL, upperLayersLeftTR, upperLayersLeftBR, upperLayersLeftTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, upperLayersRightBL, upperLayersRightTR, upperLayersRightBR, upperLayersRightTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, last, upperLayersLeftBL, upperLayersLeftBR, upperLayersLeftTR, upperLayersLeftTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, last, upperLayersRightBL, upperLayersRightBR, upperLayersRightTR, upperLayersRightTL);
 
-                    AddTransverseQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, first, lowerLayersLeftBL, lowerLayersLeftTR, lowerLayersLeftBR, lowerLayersLeftTL);
-                    AddTransverseQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, first, lowerLayersRightBL, lowerLayersRightTR, lowerLayersRightBR, lowerLayersRightTL);
-                    AddTransverseQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, last, lowerLayersLeftBL, lowerLayersLeftBR, lowerLayersLeftTR, lowerLayersLeftTL);
-                    AddTransverseQuad(ref TrackVertices, ref TrackNormals, ref TrackUVs, ref TrackTriangles, ref vertexIndex, ref triangleIndex, last, lowerLayersRightBL, lowerLayersRightBR, lowerLayersRightTR, lowerLayersRightTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, lowerLayersLeftBL, lowerLayersLeftTR, lowerLayersLeftBR, lowerLayersLeftTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, first, lowerLayersRightBL, lowerLayersRightTR, lowerLayersRightBR, lowerLayersRightTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, last, lowerLayersLeftBL, lowerLayersLeftBR, lowerLayersLeftTR, lowerLayersLeftTL);
+                    AddTransverseQuad(ref vertices, ref normals, ref uvs, ref triangles, ref vertexIndex, ref triangleIndex, last, lowerLayersRightBL, lowerLayersRightBR, lowerLayersRightTR, lowerLayersRightTL);
                 }
             }
 
