@@ -165,7 +165,7 @@ namespace CoasterForge {
             public void Execute() {
                 UpdateAnchor();
 
-                const int fineNodesPerFrame = 10000;
+                const int fineNodesPerFrame = 1000;
                 int maxK = 1;
                 int levels = (int)math.floor(math.log2(Nodes.Length / (float)fineNodesPerFrame));
                 if (levels > 0) maxK = 1 << levels;
