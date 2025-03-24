@@ -65,19 +65,14 @@ namespace CoasterForge {
         }
 
         private void Build() {
-            var nodes = new NativeList<Node>(Allocator.TempJob);
-
             var trackNodes = Track.Nodes;
-            float nodeDistance = 0.7f / Resolution;
-            float distFromLast = nodeDistance;
-            for (int i = 0; i < trackNodes.Length - 1; i++) {
-                var node = trackNodes[i];
-                distFromLast += node.DistanceFromLast;
-                if (distFromLast >= nodeDistance) {
-                    distFromLast -= nodeDistance;
-                    nodes.Add(node);
-                }
-            }
+
+            var nodes = new NativeList<Node>(Allocator.TempJob);
+            new CopyNodesJob {
+                Nodes = nodes,
+                TrackNodes = trackNodes,
+                Resolution = Resolution,
+            }.Schedule().Complete();
 
             var meshDataArray = UnityEngine.Mesh.AllocateWritableMeshData(3);
 
@@ -157,6 +152,31 @@ namespace CoasterForge {
             _meshes[2].RecalculateBounds();
 
             nodes.Dispose();
+        }
+
+        [BurstCompile]
+        private struct CopyNodesJob : IJob {
+            [WriteOnly]
+            public NativeList<Node> Nodes;
+
+            [ReadOnly]
+            public NativeArray<Node> TrackNodes;
+
+            [ReadOnly]
+            public int Resolution;
+
+            public void Execute() {
+                float nodeDistance = 0.7f / Resolution;
+                float distFromLast = nodeDistance;
+                for (int i = 0; i < TrackNodes.Length - 1; i++) {
+                    var node = TrackNodes[i];
+                    distFromLast += node.DistanceFromLast;
+                    if (distFromLast >= nodeDistance) {
+                        distFromLast -= nodeDistance;
+                        Nodes.Add(node);
+                    }
+                }
+            }
         }
 
         [BurstCompile]
