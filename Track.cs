@@ -1,22 +1,30 @@
+using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
+using UnityEngine;
 using static CoasterForge.Constants;
 
 namespace CoasterForge {
-    public class Track : UnityEngine.MonoBehaviour {
-        public UnityEngine.AnimationCurve NormalForceCurve;
-        public UnityEngine.AnimationCurve LateralForceCurve;
-        public UnityEngine.AnimationCurve RollSpeedCurve;
+    public class Track : MonoBehaviour {
+        public List<Keyframe> NormalForceCurve;
+        public List<Keyframe> LateralForceCurve;
+        public List<Keyframe> RollSpeedCurve;
         public float Duration = 10f;
-        public bool FixedVelocity = false;
+        public bool FixedVelocity;
+
+#if UNITY_EDITOR
+        public AnimationCurve NormalForceCurveEditor;
+        public AnimationCurve LateralForceCurveEditor;
+        public AnimationCurve RollSpeedCurveEditor;
+#endif
 
         private NativeArray<Node> _nodes;
         private NativeArray<Node> _prevNodes;
-        private NativeArray<float> _desiredNormalForces;
-        private NativeArray<float> _desiredLateralForces;
-        private NativeArray<float> _desiredRollSpeeds;
+        private NativeArray<float> _normalForces;
+        private NativeArray<float> _lateralForces;
+        private NativeArray<float> _rollSpeeds;
         private NativeReference<int> _solvedResolutionReference;
         private JobHandle _jobHandle;
         private int _nodeCount;
@@ -37,9 +45,9 @@ namespace CoasterForge {
             _nodeCount = (int)(HZ * Duration);
             _nodes = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
             _prevNodes = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
-            _desiredNormalForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
-            _desiredLateralForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
-            _desiredRollSpeeds = new NativeArray<float>(_nodeCount, Allocator.Persistent);
+            _normalForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
+            _lateralForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
+            _rollSpeeds = new NativeArray<float>(_nodeCount, Allocator.Persistent);
             _solvedResolutionReference = new NativeReference<int>(1, Allocator.Persistent);
             for (int i = 0; i < _nodeCount; i++) {
                 var node = Node.Default;
@@ -56,9 +64,9 @@ namespace CoasterForge {
             if (!_initialized) return;
             _nodes.Dispose();
             _prevNodes.Dispose();
-            _desiredNormalForces.Dispose();
-            _desiredLateralForces.Dispose();
-            _desiredRollSpeeds.Dispose();
+            _normalForces.Dispose();
+            _lateralForces.Dispose();
+            _rollSpeeds.Dispose();
             _solvedResolutionReference.Dispose();
             _initialized = false;
         }
@@ -73,12 +81,63 @@ namespace CoasterForge {
         }
 
         private void Update() {
+            Build();
+        }
+
+        private void UpdateFunctions() {
+            var normalForceCurve = new NativeList<Keyframe>(NormalForceCurve.Count, Allocator.TempJob);
+            var lateralForceCurve = new NativeList<Keyframe>(LateralForceCurve.Count, Allocator.TempJob);
+            var rollSpeedCurve = new NativeList<Keyframe>(RollSpeedCurve.Count, Allocator.TempJob);
+            for (int i = 0; i < NormalForceCurve.Count; i++) {
+                normalForceCurve.Add(NormalForceCurve[i]);
+            }
+            for (int i = 0; i < LateralForceCurve.Count; i++) {
+                lateralForceCurve.Add(LateralForceCurve[i]);
+            }
+            for (int i = 0; i < RollSpeedCurve.Count; i++) {
+                rollSpeedCurve.Add(RollSpeedCurve[i]);
+            }
+            new UpdateFunctionsJob {
+                NormalForces = _normalForces,
+                LateralForces = _lateralForces,
+                RollSpeeds = _rollSpeeds,
+                NormalForceCurve = normalForceCurve,
+                LateralForceCurve = lateralForceCurve,
+                RollSpeedCurve = rollSpeedCurve,
+            }.Schedule(_nodeCount, _nodeCount / 16).Complete();
+            normalForceCurve.Dispose();
+            lateralForceCurve.Dispose();
+            rollSpeedCurve.Dispose();
+        }
+
+#if UNITY_EDITOR
+        public void UpdateEditorCurves() {
+            NormalForceCurveEditor.ClearKeys();
+            LateralForceCurveEditor.ClearKeys();
+            RollSpeedCurveEditor.ClearKeys();
+            int nodeCount = (int)(HZ * Duration);
+            for (int i = 0; i < nodeCount; i += 100) {
+                float t = i / HZ;
+                float normalForce = NormalForceCurve.Evaluate(t);
+                float lateralForce = LateralForceCurve.Evaluate(t);
+                float rollSpeed = RollSpeedCurve.Evaluate(t);
+                NormalForceCurveEditor.AddKey(t, normalForce);
+                LateralForceCurveEditor.AddKey(t, lateralForce);
+                RollSpeedCurveEditor.AddKey(t, rollSpeed);
+            }
+        }
+#endif
+
+        public void MarkDirty() {
+            _dirty = true;
+        }
+
+        public void Build() {
             _jobHandle.Complete();
 
             int nodeCount = (int)(HZ * Duration);
             if (nodeCount != _nodeCount) {
                 Initialize();
-                return;
             }
 
             if (_dirty && _lastSolvedResolution > 0) {
@@ -87,7 +146,6 @@ namespace CoasterForge {
                 _solvedResolutionReference.Value = -1;
                 _lastSolvedResolution = -1;
                 _dirty = false;
-                return;
             }
 
             _prevNodes.CopyFrom(_nodes);
@@ -96,9 +154,9 @@ namespace CoasterForge {
             _jobHandle = new BuildJob {
                 Nodes = _nodes,
                 SolvedResolution = _solvedResolutionReference,
-                DesiredNormalForces = _desiredNormalForces,
-                DesiredLateralForces = _desiredLateralForces,
-                DesiredRollSpeeds = _desiredRollSpeeds,
+                NormalForces = _normalForces,
+                LateralForces = _lateralForces,
+                RollSpeeds = _rollSpeeds,
                 Refinement = _refinement,
                 FixedVelocity = FixedVelocity,
             }.Schedule();
@@ -106,16 +164,10 @@ namespace CoasterForge {
             _refinement++;
         }
 
-        private void UpdateFunctions() {
-            for (int i = 0; i < _nodeCount; i++) {
-                _desiredNormalForces[i] = NormalForceCurve.Evaluate(i / (_nodeCount - 1f));
-                _desiredLateralForces[i] = LateralForceCurve.Evaluate(i / (_nodeCount - 1f));
-                _desiredRollSpeeds[i] = RollSpeedCurve.Evaluate(i / (_nodeCount - 1f));
-            }
-        }
-
-        public void MarkDirty() {
-            _dirty = true;
+        public void Sync() {
+            _jobHandle.Complete();
+            _prevNodes.CopyFrom(_nodes);
+            _lastSolvedResolution = _solvedResolutionReference.Value;
         }
 
         private void OnDrawGizmos() {
@@ -124,19 +176,47 @@ namespace CoasterForge {
                 var node = _prevNodes[i];
                 float3 position = node.Position;
                 float3 direction = node.Direction;
-                UnityEngine.Gizmos.color = UnityEngine.Color.red;
-                UnityEngine.Gizmos.DrawSphere(position, 0.1f);
-                UnityEngine.Gizmos.DrawLine(position, position + direction);
+                Gizmos.color = Color.red;
+                Gizmos.DrawSphere(position, 0.1f);
+                Gizmos.DrawLine(position, position + direction);
 
                 float3 heartPosition = node.GetHeartPosition(HEART);
                 float3 heartDirection = node.GetHeartDirection(HEART);
-                UnityEngine.Gizmos.color = UnityEngine.Color.yellow;
-                UnityEngine.Gizmos.DrawSphere(heartPosition, 0.1f);
-                UnityEngine.Gizmos.DrawLine(heartPosition, heartPosition + heartDirection);
+                Gizmos.color = Color.yellow;
+                Gizmos.DrawSphere(heartPosition, 0.1f);
+                Gizmos.DrawLine(heartPosition, heartPosition + heartDirection);
 
                 float3 heartLateral = node.GetHeartLateral(HEART);
-                UnityEngine.Gizmos.color = UnityEngine.Color.blue;
-                UnityEngine.Gizmos.DrawLine(heartPosition, heartPosition + heartLateral);
+                Gizmos.color = Color.blue;
+                Gizmos.DrawLine(heartPosition, heartPosition + heartLateral);
+            }
+        }
+
+        [BurstCompile]
+        private struct UpdateFunctionsJob : IJobParallelFor {
+            [WriteOnly]
+            public NativeArray<float> NormalForces;
+
+            [WriteOnly]
+            public NativeArray<float> LateralForces;
+
+            [WriteOnly]
+            public NativeArray<float> RollSpeeds;
+
+            [ReadOnly]
+            public NativeList<Keyframe> NormalForceCurve;
+
+            [ReadOnly]
+            public NativeList<Keyframe> LateralForceCurve;
+
+            [ReadOnly]
+            public NativeList<Keyframe> RollSpeedCurve;
+
+            public void Execute(int index) {
+                float t = index / HZ;
+                NormalForces[index] = NormalForceCurve.Evaluate(t);
+                LateralForces[index] = LateralForceCurve.Evaluate(t);
+                RollSpeeds[index] = RollSpeedCurve.Evaluate(t);
             }
         }
 
@@ -148,13 +228,13 @@ namespace CoasterForge {
             public NativeReference<int> SolvedResolution;
 
             [ReadOnly]
-            public NativeArray<float> DesiredNormalForces;
+            public NativeArray<float> NormalForces;
 
             [ReadOnly]
-            public NativeArray<float> DesiredLateralForces;
+            public NativeArray<float> LateralForces;
 
             [ReadOnly]
-            public NativeArray<float> DesiredRollSpeeds;
+            public NativeArray<float> RollSpeeds;
 
             [ReadOnly]
             public int Refinement;
@@ -168,7 +248,14 @@ namespace CoasterForge {
                 const int fineNodesPerFrame = 1000;
                 int maxK = 1;
                 int levels = (int)math.floor(math.log2(Nodes.Length / (float)fineNodesPerFrame));
-                if (levels > 0) maxK = 1 << levels;
+                if (levels > 0) {
+                    maxK = 1 << levels;
+                    int min = (1 << levels) - 1;
+                    int max = (1 << (levels + 1)) - 1;
+                    if (Refinement > min) {
+                        Refinement = min + (Refinement - min) % (max - min);
+                    }
+                }
 
                 int groupIndex = 0;
                 int remaining = Refinement;
@@ -180,23 +267,24 @@ namespace CoasterForge {
                 }
 
                 int k = maxK >> groupIndex;
-                if (k < 1) k = 1;
+                k = math.max(k, 1);
 
                 int nodesPerGroup = (int)math.ceil(Nodes.Length / (float)groupLevels);
                 int start = nodesPerGroup * remaining;
                 int end = math.min(start + nodesPerGroup, Nodes.Length);
+                start = math.max(0, start - k);
                 float hz = HZ / k;
 
-                for (int i = start + k; i < end; i += k) {
-                    if (Refinement > 0 && (i - start) % (k * 2) == 0) continue;
+                const float tieSpacing = 0.8f;
 
+                for (int i = start + k; i < end; i += k) {
                     Node prev = Nodes[i - k];
                     Node node = prev;
 
                     // Assign target constraints values
-                    node.NormalForce = DesiredNormalForces[i];
-                    node.LateralForce = DesiredLateralForces[i];
-                    node.RollSpeed = DesiredRollSpeeds[i];
+                    node.NormalForce = NormalForces[i];
+                    node.LateralForce = LateralForces[i];
+                    node.RollSpeed = RollSpeeds[i];
 
                     // Compute force vectors needed to achieve target forces
                     float3 forceVec = -node.NormalForce * prev.Normal - node.LateralForce * prev.Lateral + math.down();
@@ -277,6 +365,13 @@ namespace CoasterForge {
                     node.NormalForce = -math.dot(forceVec, node.Normal);
                     node.LateralForce = -math.dot(forceVec, node.Lateral);
 
+                    if (node.TieDistance > tieSpacing) {
+                        node.TieDistance = 0f;
+                    }
+                    else {
+                        node.TieDistance += node.DistanceFromLast;
+                    }
+
                     Nodes[i] = node;
                 }
 
@@ -327,6 +422,7 @@ namespace CoasterForge {
             public float RollSpeed;
             public float TotalLength;
             public float TotalHeartLength;
+            public float TieDistance;
 
             public static Node Default => new() {
                 Position = float3.zero,
@@ -346,6 +442,7 @@ namespace CoasterForge {
                 RollSpeed = 0f,
                 TotalLength = 0f,
                 TotalHeartLength = 0f,
+                TieDistance = 0f,
             };
 
             public override string ToString() {
@@ -367,8 +464,15 @@ namespace CoasterForge {
                 sb.AppendLine($"RollSpeed: {RollSpeed}");
                 sb.AppendLine($"TotalLength: {TotalLength}");
                 sb.AppendLine($"TotalHeartLength: {TotalHeartLength}");
+                sb.AppendLine($"TieDistance: {TieDistance}");
                 return sb.ToString();
             }
+        }
+
+        [System.Serializable]
+        public struct Keyframe {
+            public float Time;
+            public float Value;
         }
     }
 }

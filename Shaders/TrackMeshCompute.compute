@@ -18,11 +18,19 @@ struct Node {
     float RollSpeed;
     float TotalLength;
     float TotalHeartLength;
+    float TieDistance;
 };
 
 StructuredBuffer<Node> _Nodes;
+StructuredBuffer<float3> _CrossSectionVertices;
+StructuredBuffer<float3> _CrossSectionNormals;
+StructuredBuffer<uint> _CrossSectionTriangulation;
+
 RWStructuredBuffer<float4x4> _Matrices;
-RWStructuredBuffer<uint> _Ties;
+RWStructuredBuffer<uint> _DuplicationNodes;
+RWStructuredBuffer<float3> _ExtrusionVertices;
+RWStructuredBuffer<float3> _ExtrusionNormals;
+RWStructuredBuffer<uint> _ExtrusionIndices;
 
 float _Heart;
 
@@ -86,7 +94,8 @@ float4x4 TRS(float3 pos, float4x4 rot) {
 
 [numthreads(64, 1, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID) {
-    Node node = _Nodes[id.x];
+    uint idx = id.x;
+    Node node = _Nodes[idx];
 
     float3 position = GetHeartPosition(node);
     
@@ -94,7 +103,30 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
     float3 lateral = GetHeartLateral(node);
     float3 up = normalize(cross(forward, lateral));
     float4x4 rotation = LookRotationMatrix(forward, -up);
-    
-    _Matrices[id.x] = TRS(position, rotation);
-    _Ties[id.x] = id.x % (uint)60;
+    float4x4 trs = TRS(position, rotation);
+
+    _Matrices[idx] = trs;
+    _DuplicationNodes[idx] = step(0.7, node.TieDistance);
+
+    uint N = _CrossSectionVertices.Length / 2;
+    uint M = _CrossSectionTriangulation.Length;
+
+    uint vertexOffset = idx * N;
+    uint indexOffset = idx * M;
+
+    for (uint i = 0; i < N; i++) {
+        float3 crossPos = _CrossSectionVertices[i];
+        float3 crossNormal = _CrossSectionNormals[i];
+
+        float3 pos = mul(trs, float4(crossPos, 1)).xyz;
+        float3 normal = mul(trs, float4(crossNormal, 0)).xyz;
+
+        _ExtrusionVertices[vertexOffset + i] = pos;
+        _ExtrusionNormals[vertexOffset + i] = normal;
+    }
+
+    for (uint j = 0; j < M; j++) {
+        uint index = _CrossSectionTriangulation[j];
+        _ExtrusionIndices[indexOffset + j] = vertexOffset + index;
+    }
 }
