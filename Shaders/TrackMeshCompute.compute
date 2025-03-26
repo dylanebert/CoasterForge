@@ -33,6 +33,7 @@ RWStructuredBuffer<float3> _ExtrusionNormals;
 RWStructuredBuffer<uint> _ExtrusionIndices;
 
 float _Heart;
+float _NodeCount;
 
 float3 GetHeartPosition(Node node) {
     return node.Position + _Heart * node.Normal;
@@ -95,6 +96,9 @@ float4x4 TRS(float3 pos, float4x4 rot) {
 [numthreads(64, 1, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID) {
     uint idx = id.x;
+    uint nodeCount = (uint)_NodeCount;
+    if (idx >= nodeCount) return;
+
     Node node = _Nodes[idx];
 
     float3 position = GetHeartPosition(node);
@@ -125,8 +129,19 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
         _ExtrusionNormals[vertexOffset + i] = normal;
     }
 
-    for (uint j = 0; j < M; j++) {
-        uint index = _CrossSectionTriangulation[j];
-        _ExtrusionIndices[indexOffset + j] = vertexOffset + index;
+    bool isValidNode = length(node.Direction) > 0.01 &&
+        length(node.Lateral) > 0.01 &&
+        length(node.Normal) > 0.01;
+
+    if (idx < nodeCount - 1 && isValidNode) {
+        for (uint j = 0; j < M; j++) {
+            uint index = _CrossSectionTriangulation[j];
+            _ExtrusionIndices[indexOffset + j] = vertexOffset + index;
+        }
+    }
+    else {
+        for (uint j = 0; j < M; j++) {
+            _ExtrusionIndices[indexOffset + j] = 0;
+        }
     }
 }

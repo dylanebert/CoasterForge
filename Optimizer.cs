@@ -4,7 +4,6 @@ using UnityEngine;
 namespace CoasterForge {
     public class Optimizer : MonoBehaviour {
         public Track Track;
-        public TrackMesh TrackMesh;
         public Transform ControlPoint;
         public float LearningRate = 0.001f;
 
@@ -37,8 +36,6 @@ namespace CoasterForge {
             N1 -= LearningRate * gradN1;
             keyframe.Value = N1;
             Track.NormalForceCurve[1] = keyframe;
-
-            TrackMesh.RequestRebuild();
         }
     }
 }
