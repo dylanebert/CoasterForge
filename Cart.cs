@@ -16,16 +16,17 @@ namespace CoasterForge {
 
         private void FixedUpdate() {
             _indexFloat += UnityEngine.Time.fixedDeltaTime * HZ;
-            if (_indexFloat >= Track.Nodes.Length - 2) {
+            if (_indexFloat >= Track.NodeCount - 2) {
                 _indexFloat = 1f;
             }
         }
 
         private void ApplyPosition() {
+            int nodeCount = Track.NodeCount;
             var nodes = Track.Nodes;
-            if (nodes.Length < 3) return;
+            if (nodeCount < 3) return;
 
-            _indexFloat = math.clamp(_indexFloat, 1, nodes.Length - 2);
+            _indexFloat = math.clamp(_indexFloat, 1, nodeCount - 2);
             int index = (int)math.floor(_indexFloat);
             float t = _indexFloat - index;
 
@@ -34,7 +35,7 @@ namespace CoasterForge {
                 float startLength = nodes[index].TotalLength;
                 float targetLength = startLength + offset;
                 int direction = offset > 0f ? 1 : -1;
-                while (currentIndex > 0 && currentIndex < nodes.Length - 2) {
+                while (currentIndex > 0 && currentIndex < nodeCount - 2) {
                     if ((direction > 0 && nodes[currentIndex + 1].TotalLength >= targetLength) ||
                         (direction < 0 && nodes[currentIndex - 1].TotalLength <= targetLength)) {
                         break;

@@ -79,9 +79,7 @@ namespace CoasterForge {
         }
 
         private void Update() {
-            bool shouldRebuild = _computeFence == null
-                && Track.NodeCount > 0
-                && Track.SolvedResolution == 1;
+            bool shouldRebuild = _computeFence == null && Track.NodeCount > 0;
 
             if (shouldRebuild) {
                 Build();
@@ -110,13 +108,14 @@ namespace CoasterForge {
         }
 
         private void Build() {
+            int nodeCount = Track.NodeCount;
             var nodes = Track.Nodes;
 
-            if (_nextBuffers == null || _nextBuffers.NodesBuffer.count != nodes.Length) {
+            if (_nextBuffers == null || _nextBuffers.NodesBuffer.count != nodeCount) {
                 _nextBuffers?.Dispose();
                 _nextBuffers = new ComputeData();
                 _nextBuffers.Initialize(
-                    nodes.Length,
+                    nodeCount,
                     _crossSectionVerticesBuffer,
                     _crossSectionUVsBuffer,
                     _crossSectionTriangulationBuffer,
@@ -126,7 +125,7 @@ namespace CoasterForge {
                 );
             }
 
-            _nextBuffers.NodesBuffer.SetData(nodes);
+            _nextBuffers.NodesBuffer.SetData(nodes, 0, 0, nodeCount);
 
             int kernel = TrackMeshCompute.FindKernel("CSMain");
 
@@ -143,10 +142,10 @@ namespace CoasterForge {
             TrackMeshCompute.SetBuffer(kernel, "_ExtrusionIndices", _nextBuffers.ExtrusionIndicesBuffer);
 
             TrackMeshCompute.SetFloat("_Heart", HEART);
-            TrackMeshCompute.SetFloat("_NodeCount", nodes.Length);
+            TrackMeshCompute.SetFloat("_NodeCount", nodeCount);
 
             TrackMeshCompute.GetKernelThreadGroupSizes(kernel, out uint threadGroupSize, out _, out _);
-            int threadGroups = (int)math.ceil(nodes.Length / (float)threadGroupSize);
+            int threadGroups = (int)math.ceil(nodeCount / (float)threadGroupSize);
 
             TrackMeshCompute.Dispatch(kernel, threadGroups, 1, 1);
 

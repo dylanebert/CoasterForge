@@ -2,7 +2,6 @@ using Unity.Mathematics;
 using static CoasterForge.Constants;
 using Node = CoasterForge.Track.Node;
 using Keyframe = CoasterForge.Track.Keyframe;
-using System.Collections.Generic;
 using Unity.Collections;
 
 namespace CoasterForge {
@@ -59,44 +58,51 @@ namespace CoasterForge {
             return math.normalize(node.Lateral + deviation);
         }
 
-        public static float Evaluate(this NativeList<Keyframe> curve, float time) {
-            if (curve.Length == 0) return 0f;
-            if (curve.Length == 1) return curve[0].Value;
+        public static void Evaluate(
+            this NativeArray<Keyframe> keyframes,
+            float time,
+            out float normalForce,
+            out float lateralForce,
+            out float rollSpeed) {
+            if (keyframes.Length == 0) {
+                normalForce = 0f;
+                lateralForce = 0f;
+                rollSpeed = 0f;
+                return;
+            }
+            if (keyframes.Length == 1) {
+                normalForce = keyframes[0].NormalForce;
+                lateralForce = keyframes[0].LateralForce;
+                rollSpeed = keyframes[0].RollSpeed;
+                return;
+            }
 
             int nextIndex = 0;
-            while (nextIndex < curve.Length && curve[nextIndex].Time < time) {
+            while (nextIndex < keyframes.Length && keyframes[nextIndex].Time < time) {
                 nextIndex++;
             }
 
-            if (nextIndex == 0) return curve[0].Value;
-            if (nextIndex == curve.Length) return curve[^1].Value;
-
-            Keyframe k1 = curve[nextIndex - 1];
-            Keyframe k2 = curve[nextIndex];
-
-            float t = (time - k1.Time) / (k2.Time - k1.Time);
-
-            return k1.Value + (k2.Value - k1.Value) * (1 - math.cos(t * math.PI)) * 0.5f;
-        }
-
-        public static float Evaluate(this List<Keyframe> curve, float time) {
-            if (curve.Count == 0) return 0f;
-            if (curve.Count == 1) return curve[0].Value;
-
-            int nextIndex = 0;
-            while (nextIndex < curve.Count && curve[nextIndex].Time < time) {
-                nextIndex++;
+            if (nextIndex == 0) {
+                normalForce = keyframes[0].NormalForce;
+                lateralForce = keyframes[0].LateralForce;
+                rollSpeed = keyframes[0].RollSpeed;
+                return;
+            }
+            if (nextIndex == keyframes.Length) {
+                normalForce = keyframes[^1].NormalForce;
+                lateralForce = keyframes[^1].LateralForce;
+                rollSpeed = keyframes[^1].RollSpeed;
+                return;
             }
 
-            if (nextIndex == 0) return curve[0].Value;
-            if (nextIndex == curve.Count) return curve[^1].Value;
-
-            Keyframe k1 = curve[nextIndex - 1];
-            Keyframe k2 = curve[nextIndex];
+            Keyframe k1 = keyframes[nextIndex - 1];
+            Keyframe k2 = keyframes[nextIndex];
 
             float t = (time - k1.Time) / (k2.Time - k1.Time);
 
-            return k1.Value + (k2.Value - k1.Value) * (1 - math.cos(t * math.PI)) * 0.5f;
+            normalForce = k1.NormalForce + (k2.NormalForce - k1.NormalForce) * (1 - math.cos(t * math.PI)) * 0.5f;
+            lateralForce = k1.LateralForce + (k2.LateralForce - k1.LateralForce) * (1 - math.cos(t * math.PI)) * 0.5f;
+            rollSpeed = k1.RollSpeed + (k2.RollSpeed - k1.RollSpeed) * (1 - math.cos(t * math.PI)) * 0.5f;
         }
     }
 }

@@ -7,23 +7,27 @@ namespace CoasterForge {
 
         private void Update() {
             if (Keyboard.current.f1Key.wasPressedThisFrame) {
-                Track.Duration += 0.1f;
+                var keyframe = Track.Keyframes[^1];
+                keyframe.Time += 0.1f;
+                Track.Keyframes[^1] = keyframe;
                 Track.MarkDirty();
             }
             else if (Keyboard.current.f2Key.wasPressedThisFrame) {
-                Track.Duration -= 0.1f;
+                var keyframe = Track.Keyframes[^1];
+                keyframe.Time -= 0.1f;
+                Track.Keyframes[^1] = keyframe;
                 Track.MarkDirty();
             }
             else if (Keyboard.current.f3Key.isPressed) {
-                var keyframe = Track.NormalForceCurve[2];
-                keyframe.Time += Time.deltaTime;
-                Track.NormalForceCurve[2] = keyframe;
+                var keyframe = Track.Keyframes[^1];
+                keyframe.NormalForce += 0.1f;
+                Track.Keyframes[^1] = keyframe;
                 Track.MarkDirty();
             }
             else if (Keyboard.current.f4Key.isPressed) {
-                var keyframe = Track.NormalForceCurve[2];
-                keyframe.Time -= Time.deltaTime;
-                Track.NormalForceCurve[2] = keyframe;
+                var keyframe = Track.Keyframes[^1];
+                keyframe.NormalForce -= 0.1f;
+                Track.Keyframes[^1] = keyframe;
                 Track.MarkDirty();
             }
             else if (Keyboard.current.f5Key.wasPressedThisFrame) {

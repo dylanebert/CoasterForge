@@ -8,10 +8,7 @@ using static CoasterForge.Constants;
 
 namespace CoasterForge {
     public class Track : MonoBehaviour {
-        public List<Keyframe> NormalForceCurve;
-        public List<Keyframe> LateralForceCurve;
-        public List<Keyframe> RollSpeedCurve;
-        public float Duration = 10f;
+        public List<Keyframe> Keyframes;
         public bool FixedVelocity;
 
 #if UNITY_EDITOR
@@ -20,94 +17,103 @@ namespace CoasterForge {
         public AnimationCurve RollSpeedCurveEditor;
 #endif
 
-        private NativeArray<Node> _nodes;
-        private NativeArray<Node> _prevNodes;
-        private NativeArray<float> _normalForces;
-        private NativeArray<float> _lateralForces;
-        private NativeArray<float> _rollSpeeds;
-        private NativeReference<int> _solvedResolutionReference;
+        private NativeArray<Node> _nodesRW;
+        private NativeArray<Node> _nodesRO;
+        private NativeArray<Keyframe> _curve;
+
+        private NativeReference<int> _startRW;
+        private NativeReference<int> _endRW;
+        private NativeReference<int> _kRW;
+        private NativeReference<float> _hzRW;
+        private NativeReference<int> _refinementRW;
+
+        private NativeReference<int> _nodeCountRW;
+        private NativeReference<int> _solvedKRW;
+
+        private NativeReference<int> _solvedKRO;
+        private NativeReference<int> _nodeCountRO;
+
         private JobHandle _jobHandle;
-        private int _nodeCount;
-        private int _refinement;
-        private int _lastSolvedResolution = -1;
+        private int _capacity;
         private bool _dirty;
         private bool _initialized;
 
-        public NativeArray<Node> Nodes => _prevNodes;
-        public int NodeCount => _nodeCount;
-        public int SolvedResolution => _lastSolvedResolution;
+        public NativeArray<Node> Nodes => _nodesRO;
+        public float Duration => Keyframes[^1].Time;
+        public int NodeCount => _nodeCountRO.Value;
+        public int SolvedK => _solvedKRO.Value;
 
         private void Initialize() {
             if (_initialized) {
                 Dispose();
             }
 
-            _nodeCount = (int)(HZ * Duration);
-            _nodes = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
-            _prevNodes = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
-            _normalForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
-            _lateralForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
-            _rollSpeeds = new NativeArray<float>(_nodeCount, Allocator.Persistent);
-            _solvedResolutionReference = new NativeReference<int>(1, Allocator.Persistent);
-            for (int i = 0; i < _nodeCount; i++) {
-                var node = Node.Default;
-                _nodes[i] = node;
+            while (_capacity < _nodeCountRO.Value) {
+                _capacity *= 2;
             }
-            UpdateFunctions();
+
+            _nodesRW = new NativeArray<Node>(_capacity, Allocator.Persistent);
+            _nodesRO = new NativeArray<Node>(_capacity, Allocator.Persistent);
+            _curve = new NativeArray<Keyframe>(_capacity, Allocator.Persistent);
+
+            new InitializeJob {
+                Nodes = _nodesRW,
+            }.Schedule(_capacity, _capacity / 16).Complete();
+
             _initialized = true;
-            _refinement = 0;
-            _solvedResolutionReference.Value = -1;
-            _lastSolvedResolution = -1;
+            _dirty = true;
         }
 
         private void Dispose() {
             if (!_initialized) return;
-            _nodes.Dispose();
-            _prevNodes.Dispose();
-            _normalForces.Dispose();
-            _lateralForces.Dispose();
-            _rollSpeeds.Dispose();
-            _solvedResolutionReference.Dispose();
+            _nodesRW.Dispose();
+            _nodesRO.Dispose();
+            _curve.Dispose();
             _initialized = false;
         }
 
         private void Start() {
+            _startRW = new NativeReference<int>(Allocator.Persistent);
+            _endRW = new NativeReference<int>(Allocator.Persistent);
+            _kRW = new NativeReference<int>(Allocator.Persistent);
+            _hzRW = new NativeReference<float>(Allocator.Persistent);
+            _refinementRW = new NativeReference<int>(Allocator.Persistent);
+
+            _solvedKRW = new NativeReference<int>(Allocator.Persistent) { Value = -1 };
+            _nodeCountRW = new NativeReference<int>(Allocator.Persistent);
+
+            _solvedKRO = new NativeReference<int>(Allocator.Persistent);
+            _nodeCountRO = new NativeReference<int>(Allocator.Persistent);
+
+            if (Keyframes.Count < 2) {
+                Keyframes.Add(new Keyframe { Time = 0f, NormalForce = 1f, LateralForce = 0f, RollSpeed = 0f });
+                Keyframes.Add(new Keyframe { Time = 1f, NormalForce = 1f, LateralForce = 0f, RollSpeed = 0f });
+            }
+
+            _nodeCountRW.Value = (int)(HZ * Duration);
+            _capacity = 65536;
             Initialize();
         }
 
         private void OnDestroy() {
             _jobHandle.Complete();
             Dispose();
+
+            _startRW.Dispose();
+            _endRW.Dispose();
+            _kRW.Dispose();
+            _hzRW.Dispose();
+            _refinementRW.Dispose();
+
+            _solvedKRW.Dispose();
+            _nodeCountRW.Dispose();
+
+            _solvedKRO.Dispose();
+            _nodeCountRO.Dispose();
         }
 
         private void Update() {
             Build();
-        }
-
-        private void UpdateFunctions() {
-            var normalForceCurve = new NativeList<Keyframe>(NormalForceCurve.Count, Allocator.TempJob);
-            var lateralForceCurve = new NativeList<Keyframe>(LateralForceCurve.Count, Allocator.TempJob);
-            var rollSpeedCurve = new NativeList<Keyframe>(RollSpeedCurve.Count, Allocator.TempJob);
-            for (int i = 0; i < NormalForceCurve.Count; i++) {
-                normalForceCurve.Add(NormalForceCurve[i]);
-            }
-            for (int i = 0; i < LateralForceCurve.Count; i++) {
-                lateralForceCurve.Add(LateralForceCurve[i]);
-            }
-            for (int i = 0; i < RollSpeedCurve.Count; i++) {
-                rollSpeedCurve.Add(RollSpeedCurve[i]);
-            }
-            new UpdateFunctionsJob {
-                NormalForces = _normalForces,
-                LateralForces = _lateralForces,
-                RollSpeeds = _rollSpeeds,
-                NormalForceCurve = normalForceCurve,
-                LateralForceCurve = lateralForceCurve,
-                RollSpeedCurve = rollSpeedCurve,
-            }.Schedule(_nodeCount, _nodeCount / 16).Complete();
-            normalForceCurve.Dispose();
-            lateralForceCurve.Dispose();
-            rollSpeedCurve.Dispose();
         }
 
 #if UNITY_EDITOR
@@ -115,16 +121,19 @@ namespace CoasterForge {
             NormalForceCurveEditor.ClearKeys();
             LateralForceCurveEditor.ClearKeys();
             RollSpeedCurveEditor.ClearKeys();
+            var keyframes = new NativeArray<Keyframe>(Keyframes.Count, Allocator.Temp);
+            for (int i = 0; i < Keyframes.Count; i++) {
+                keyframes[i] = Keyframes[i];
+            }
             int nodeCount = (int)(HZ * Duration);
             for (int i = 0; i < nodeCount; i += 100) {
-                float t = i / HZ;
-                float normalForce = NormalForceCurve.Evaluate(t);
-                float lateralForce = LateralForceCurve.Evaluate(t);
-                float rollSpeed = RollSpeedCurve.Evaluate(t);
+                float t = i / (float)nodeCount;
+                keyframes.Evaluate(t, out float normalForce, out float lateralForce, out float rollSpeed);
                 NormalForceCurveEditor.AddKey(t, normalForce);
                 LateralForceCurveEditor.AddKey(t, lateralForce);
                 RollSpeedCurveEditor.AddKey(t, rollSpeed);
             }
+            keyframes.Dispose();
         }
 #endif
 
@@ -132,48 +141,93 @@ namespace CoasterForge {
             _dirty = true;
         }
 
-        public void Build() {
+        public JobHandle Build(bool force = false) {
             _jobHandle.Complete();
 
-            int nodeCount = (int)(HZ * Duration);
-            if (nodeCount != _nodeCount) {
+            if (!force) {
+                new SafeCopyJob {
+                    NodesRO = _nodesRO,
+                    NodesRW = _nodesRW,
+                }.Schedule(_nodeCountRW.Value, _nodeCountRW.Value / 16).Complete();
+                _nodeCountRO.Value = _nodeCountRW.Value;
+                _solvedKRO.Value = _solvedKRW.Value;
+            }
+
+            if (Duration < 0.01f) {
+                return default;
+            }
+
+            _nodeCountRW.Value = (int)(HZ * Duration);
+            if (_nodeCountRW.Value > _capacity) {
                 Initialize();
             }
 
-            if (_dirty && _lastSolvedResolution > 0) {
-                UpdateFunctions();
-                _refinement = 0;
-                _solvedResolutionReference.Value = -1;
-                _lastSolvedResolution = -1;
+            if (_dirty || force) {
+                var keyframes = new NativeArray<Keyframe>(Keyframes.Count, Allocator.TempJob);
+                for (int i = 0; i < Keyframes.Count; i++) {
+                    keyframes[i] = Keyframes[i];
+                }
+                _jobHandle = new UpdateFunctionsJob {
+                    Curve = _curve,
+                    Keyframes = keyframes,
+                    NodeCount = _nodeCountRW,
+                }.Schedule(_jobHandle);
+                _jobHandle = keyframes.Dispose(_jobHandle);
+
+                _refinementRW.Value = 0;
+                _solvedKRW.Value = -1;
                 _dirty = false;
             }
 
-            _prevNodes.CopyFrom(_nodes);
-            _lastSolvedResolution = _solvedResolutionReference.Value;
+            if (force) {
+                _startRW.Value = 0;
+                _endRW.Value = _nodeCountRW.Value;
+                _kRW.Value = 1;
+                _hzRW.Value = HZ;
+                _solvedKRW.Value = 1;
+            }
+            else {
+                _jobHandle = new ComputeChunkJob {
+                    Refinement = _refinementRW,
+                    SolvedK = _solvedKRW,
+                    Start = _startRW,
+                    End = _endRW,
+                    K = _kRW,
+                    HZ = _hzRW,
+                    NodeCount = _nodeCountRW,
+                }.Schedule(_jobHandle);
+            }
 
             _jobHandle = new BuildJob {
-                Nodes = _nodes,
-                SolvedResolution = _solvedResolutionReference,
-                NormalForces = _normalForces,
-                LateralForces = _lateralForces,
-                RollSpeeds = _rollSpeeds,
-                Refinement = _refinement,
+                Nodes = _nodesRW,
+                Curve = _curve,
+                Start = _startRW,
+                End = _endRW,
+                K = _kRW,
+                HZ = _hzRW,
                 FixedVelocity = FixedVelocity,
-            }.Schedule();
+            }.Schedule(_jobHandle);
 
-            _refinement++;
-        }
+            if (force) {
+                _jobHandle = new CopyJob {
+                    NodesRO = _nodesRO,
+                    NodeCountRO = _nodeCountRO,
+                    SolvedKRO = _solvedKRO,
+                    NodesRW = _nodesRW,
+                    NodeCountRW = _nodeCountRW,
+                    SolvedKRW = _solvedKRW,
+                }.Schedule(_jobHandle);
+            }
 
-        public void Sync() {
-            _jobHandle.Complete();
-            _prevNodes.CopyFrom(_nodes);
-            _lastSolvedResolution = _solvedResolutionReference.Value;
+            return _jobHandle;
         }
 
         private void OnDrawGizmos() {
-            for (int i = 0; i < _prevNodes.Length; i++) {
+            if (!_initialized) return;
+            int nodeCount = _nodeCountRO.Value;
+            for (int i = 0; i < nodeCount; i++) {
                 if (i % 100 != 0) continue;
-                var node = _prevNodes[i];
+                var node = _nodesRO[i];
                 float3 position = node.Position;
                 float3 direction = node.Direction;
                 Gizmos.color = Color.red;
@@ -193,72 +247,126 @@ namespace CoasterForge {
         }
 
         [BurstCompile]
-        private struct UpdateFunctionsJob : IJobParallelFor {
+        private struct InitializeJob : IJobParallelFor {
             [WriteOnly]
-            public NativeArray<float> NormalForces;
-
-            [WriteOnly]
-            public NativeArray<float> LateralForces;
-
-            [WriteOnly]
-            public NativeArray<float> RollSpeeds;
-
-            [ReadOnly]
-            public NativeList<Keyframe> NormalForceCurve;
-
-            [ReadOnly]
-            public NativeList<Keyframe> LateralForceCurve;
-
-            [ReadOnly]
-            public NativeList<Keyframe> RollSpeedCurve;
+            public NativeArray<Node> Nodes;
 
             public void Execute(int index) {
-                float t = index / HZ;
-                NormalForces[index] = NormalForceCurve.Evaluate(t);
-                LateralForces[index] = LateralForceCurve.Evaluate(t);
-                RollSpeeds[index] = RollSpeedCurve.Evaluate(t);
+                Nodes[index] = Node.Default;
             }
         }
 
         [BurstCompile]
-        private struct BuildJob : IJob {
-            public NativeArray<Node> Nodes;
+        private struct CopyJob : IJob {
+            [WriteOnly]
+            public NativeArray<Node> NodesRO;
 
             [WriteOnly]
-            public NativeReference<int> SolvedResolution;
+            public NativeReference<int> NodeCountRO;
+
+            [WriteOnly]
+            public NativeReference<int> SolvedKRO;
 
             [ReadOnly]
-            public NativeArray<float> NormalForces;
+            public NativeArray<Node> NodesRW;
 
             [ReadOnly]
-            public NativeArray<float> LateralForces;
+            public NativeReference<int> NodeCountRW;
 
             [ReadOnly]
-            public NativeArray<float> RollSpeeds;
-
-            [ReadOnly]
-            public int Refinement;
-
-            [ReadOnly]
-            public bool FixedVelocity;
+            public NativeReference<int> SolvedKRW;
 
             public void Execute() {
-                UpdateAnchor();
+                int nodeCount = NodeCountRW.Value;
+                for (int i = 0; i < nodeCount; i++) {
+                    NodesRO[i] = NodesRW[i];
+                }
+                NodeCountRO.Value = NodeCountRW.Value;
+                SolvedKRO.Value = SolvedKRW.Value;
+            }
+        }
 
+        [BurstCompile]
+        private struct SafeCopyJob : IJobParallelFor {
+            [WriteOnly]
+            public NativeArray<Node> NodesRO;
+
+            [ReadOnly]
+            public NativeArray<Node> NodesRW;
+
+            public void Execute(int index) {
+                NodesRO[index] = NodesRW[index];
+            }
+        }
+
+        [BurstCompile]
+        private struct UpdateFunctionsJob : IJob {
+            [WriteOnly]
+            public NativeArray<Keyframe> Curve;
+
+            [ReadOnly]
+            public NativeArray<Keyframe> Keyframes;
+
+            [ReadOnly]
+            public NativeReference<int> NodeCount;
+
+            public void Execute() {
+                for (int i = 0; i < NodeCount.Value; i++) {
+                    float t = i / (float)NodeCount.Value;
+                    Keyframes.Evaluate(t, out float normalForce, out float lateralForce, out float rollSpeed);
+                    Curve[i] = new Keyframe {
+                        Time = t,
+                        NormalForce = normalForce,
+                        LateralForce = lateralForce,
+                        RollSpeed = rollSpeed,
+                    };
+                }
+            }
+        }
+
+        [BurstCompile]
+        private struct ComputeChunkJob : IJob {
+            public NativeReference<int> Refinement;
+            public NativeReference<int> SolvedK;
+
+            [WriteOnly]
+            public NativeReference<int> Start;
+
+            [WriteOnly]
+            public NativeReference<int> End;
+
+            [WriteOnly]
+            public NativeReference<int> K;
+
+            [WriteOnly]
+            public NativeReference<float> HZ;
+
+            [ReadOnly]
+            public NativeReference<int> NodeCount;
+
+            public void Execute() {
                 const int fineNodesPerFrame = 10000;
+
+                int nodeCount = NodeCount.Value;
+                int refinement = Refinement.Value;
                 int maxK = 1;
-                int levels = (int)math.floor(math.log2(Nodes.Length / (float)fineNodesPerFrame));
+                int levels = (int)math.floor(math.log2(nodeCount / (float)fineNodesPerFrame));
+                bool solved = false;
                 if (levels > 0) {
                     maxK = 1 << levels;
                     int min = (1 << levels) - 1;
                     int max = (1 << (levels + 1)) - 1;
-                    if (Refinement > min) {
-                        Refinement = min + (Refinement - min) % (max - min);
+                    solved = refinement >= max;
+                    if (refinement > min) {
+                        refinement = min + (refinement - min) % (max - min);
                     }
+                }
+                else {
+                    solved = refinement >= 1;
                 }
 
                 int groupIndex = 0;
-                int remaining = Refinement;
+                int remaining = refinement;
                 int groupLevels = 1;
                 while (remaining >= groupLevels) {
                     remaining -= groupLevels;
@@ -268,23 +376,63 @@ namespace CoasterForge {
 
                 int k = maxK >> groupIndex;
                 k = math.max(k, 1);
+                int solvedK = solved ? 1 : k * 2;
 
-                int nodesPerGroup = (int)math.ceil(Nodes.Length / (float)groupLevels);
+                SolvedK.Value = SolvedK.Value < 0 ? solvedK : math.min(solvedK, SolvedK.Value);
+                Refinement.Value++;
+
+                int nodesPerGroup = (int)math.ceil(nodeCount / (float)groupLevels);
                 int start = nodesPerGroup * remaining;
-                int end = math.min(start + nodesPerGroup, Nodes.Length);
+                int end = math.min(start + nodesPerGroup, nodeCount);
                 start = math.max(0, start - k);
-                float hz = HZ / k;
+                float hz = Constants.HZ / k;
 
-                const float tieSpacing = 0.8f;
+                Start.Value = start;
+                End.Value = end;
+                K.Value = k;
+                HZ.Value = hz;
+            }
+        }
+
+        [BurstCompile]
+        private struct BuildJob : IJob {
+            public NativeArray<Node> Nodes;
+
+            [ReadOnly]
+            public NativeArray<Keyframe> Curve;
+
+            [ReadOnly]
+            public NativeReference<int> Start;
+
+            [ReadOnly]
+            public NativeReference<int> End;
+
+            [ReadOnly]
+            public NativeReference<int> K;
+
+            [ReadOnly]
+            public NativeReference<float> HZ;
+
+            [ReadOnly]
+            public bool FixedVelocity;
+
+            public void Execute() {
+                UpdateAnchor();
+
+                int start = Start.Value;
+                int end = End.Value;
+                int k = K.Value;
+                float hz = HZ.Value;
 
                 for (int i = start + k; i < end; i += k) {
                     Node prev = Nodes[i - k];
                     Node node = prev;
 
                     // Assign target constraints values
-                    node.NormalForce = NormalForces[i];
-                    node.LateralForce = LateralForces[i];
-                    node.RollSpeed = RollSpeeds[i];
+                    Keyframe keyframe = Curve[i];
+                    node.NormalForce = keyframe.NormalForce;
+                    node.LateralForce = keyframe.LateralForce;
+                    node.RollSpeed = keyframe.RollSpeed * 100f;
 
                     // Compute force vectors needed to achieve target forces
                     float3 forceVec = -node.NormalForce * prev.Normal - node.LateralForce * prev.Lateral + math.down();
@@ -365,7 +513,7 @@ namespace CoasterForge {
                     node.NormalForce = -math.dot(forceVec, node.Normal);
                     node.LateralForce = -math.dot(forceVec, node.Lateral);
 
-                    if (node.TieDistance > tieSpacing) {
+                    if (node.TieDistance > TIE_SPACING) {
                         node.TieDistance = 0f;
                     }
                     else {
@@ -389,10 +537,6 @@ namespace CoasterForge {
                     node.Position = math.lerp(prev.Position, next.Position, t);
 
                     Nodes[i] = node;
-                }
-
-                if (end == Nodes.Length) {
-                    SolvedResolution.Value = k;
                 }
             }
 
@@ -472,7 +616,20 @@ namespace CoasterForge {
         [System.Serializable]
         public struct Keyframe {
             public float Time;
-            public float Value;
+            public float NormalForce;
+            public float LateralForce;
+            public float RollSpeed;
+
+            public override string ToString() {
+                return $"Time: {Time}, NormalForce: {NormalForce}, LateralForce: {LateralForce}, RollSpeed: {RollSpeed}";
+            }
+
+            public static Keyframe Default => new() {
+                Time = 1f,
+                NormalForce = 1f,
+                LateralForce = 0f,
+                RollSpeed = 0f,
+            };
         }
     }
 }
