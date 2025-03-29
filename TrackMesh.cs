@@ -81,7 +81,7 @@ namespace CoasterForge {
         private void Update() {
             bool shouldRebuild = _computeFence == null
                 && Track.NodeCount > 0
-                && Track.SolvedResolution == 1;
+                && Track.SolvedK == 1;
 
             if (shouldRebuild) {
                 Build();

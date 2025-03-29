@@ -1,4 +1,7 @@
-using Unity.Mathematics;
+using System.Collections.Generic;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
 
 namespace CoasterForge {
@@ -8,34 +11,74 @@ namespace CoasterForge {
         public float LearningRate = 0.001f;
 
         private void Update() {
-            if (Track.SolvedResolution <= 0) return;
+            if (Track.SolvedK <= 0) return;
 
-            Track.MarkDirty();
-            Track.Build();
-            Track.Sync();
+            // Adjustable parameters
+            // Duration d (in seconds)
+            // Normal force curve (in gs, list of keyframes)
+            // Roll speed curve (in deg/s, list of keyframes)
+            // Each keyframe has normalized time t [0, 1] and value
+            float d0 = Track.Duration;
+            List<Track.Keyframe> nF0 = Track.NormalForceCurve;
+            List<Track.Keyframe> rS0 = Track.RollSpeedCurve;
+
+            // Compute track nodes from duration, normal forces, and roll speeds
+            // Nodes are indexed by time, one node every 0.001s
+            // The nodes pass through the rider center, not the track
+            // The term "heart" refers to an offset from the rider center, e.g. the actual track
+            // Each node contains:
+            // Position: World space [x, y, z] in meters
+            // Direction: Node forward vector
+            // Lateral: Node right vector
+            // Normal: Node up vector
+            // Roll: Banking in degrees
+            // Velocity: m/s
+            // Energy: Potential + kinetic
+            // NormalForce: gs
+            // LateralForce: gs
+            // RollSpeed: deg/s
+            // DistanceFromLast: Distance from position to previous position
+            // HeartDistanceFromLast: Distance from track position to previous track position
+            // AngleFromLast: Combined angle from previous in degrees
+            // PitchFromLast: Pitch from previous in degrees
+            // YawFromLast: Yaw from previous in degrees
+            // RollSpeed: deg/s
+            // TotalLength: Cumulative length of the nodes
+            // TotalHeartLength: Cumulative length of the actual track
+            Simulate();
+
             var nodes = Track.Nodes;
+            var results = new NativeArray<ForwardResult>(nodes.Length, Allocator.TempJob);
+            new ForwardJob {
+                Results = results,
+                Nodes = nodes,
+            }.Schedule().Complete();
 
-            var keyframe = Track.NormalForceCurve[1];
-            float N1 = keyframe.Value;
+            Simulate();
+        }
 
-            float3 endPos = ControlPoint.position;
-            float loss = math.lengthsq(nodes[nodes.Length / 2].Position - endPos);
-
-            var keyframeN1 = keyframe;
-            keyframeN1.Value += 0.1f;
-            Track.NormalForceCurve[1] = keyframeN1;
-
+        private void Simulate() {
             Track.MarkDirty();
             Track.Build();
-            Track.Sync();
-            nodes = Track.Nodes;
+        }
 
-            float lossN1 = math.lengthsq(nodes[nodes.Length / 2].Position - endPos);
-            float gradN1 = lossN1 - loss;
+        [BurstCompile]
+        private struct ForwardJob : IJob {
+            [WriteOnly]
+            public NativeArray<ForwardResult> Results;
 
-            N1 -= LearningRate * gradN1;
-            keyframe.Value = N1;
-            Track.NormalForceCurve[1] = keyframe;
+            [ReadOnly]
+            public NativeArray<Track.Node> Nodes;
+
+            public void Execute() {
+                for (int i = 0; i < Nodes.Length; i++) {
+                    // Forward pass
+                }
+            }
+        }
+
+        private struct ForwardResult {
+
         }
     }
 }

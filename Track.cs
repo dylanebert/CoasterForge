@@ -25,17 +25,16 @@ namespace CoasterForge {
         private NativeArray<float> _normalForces;
         private NativeArray<float> _lateralForces;
         private NativeArray<float> _rollSpeeds;
-        private NativeReference<int> _solvedResolutionReference;
         private JobHandle _jobHandle;
         private int _nodeCount;
         private int _refinement;
-        private int _lastSolvedResolution = -1;
+        private int _solvedK = -1;
         private bool _dirty;
         private bool _initialized;
 
         public NativeArray<Node> Nodes => _prevNodes;
         public int NodeCount => _nodeCount;
-        public int SolvedResolution => _lastSolvedResolution;
+        public int SolvedK => _solvedK;
 
         private void Initialize() {
             if (_initialized) {
@@ -48,7 +47,6 @@ namespace CoasterForge {
             _normalForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
             _lateralForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
             _rollSpeeds = new NativeArray<float>(_nodeCount, Allocator.Persistent);
-            _solvedResolutionReference = new NativeReference<int>(1, Allocator.Persistent);
             for (int i = 0; i < _nodeCount; i++) {
                 var node = Node.Default;
                 _nodes[i] = node;
@@ -56,8 +54,7 @@ namespace CoasterForge {
             UpdateFunctions();
             _initialized = true;
             _refinement = 0;
-            _solvedResolutionReference.Value = -1;
-            _lastSolvedResolution = -1;
+            _solvedK = -1;
         }
 
         private void Dispose() {
@@ -67,7 +64,6 @@ namespace CoasterForge {
             _normalForces.Dispose();
             _lateralForces.Dispose();
             _rollSpeeds.Dispose();
-            _solvedResolutionReference.Dispose();
             _initialized = false;
         }
 
@@ -135,39 +131,81 @@ namespace CoasterForge {
         public void Build() {
             _jobHandle.Complete();
 
+            if (Duration < 0.01f) {
+                Debug.LogWarning("Duration is too short");
+                return;
+            }
+
             int nodeCount = (int)(HZ * Duration);
             if (nodeCount != _nodeCount) {
                 Initialize();
             }
 
-            if (_dirty && _lastSolvedResolution > 0) {
+            if (_dirty) {
                 UpdateFunctions();
                 _refinement = 0;
-                _solvedResolutionReference.Value = -1;
-                _lastSolvedResolution = -1;
+                _solvedK = -1;
                 _dirty = false;
             }
 
             _prevNodes.CopyFrom(_nodes);
-            _lastSolvedResolution = _solvedResolutionReference.Value;
+
+            (int start, int end, int k, float hz) = NextChunk();
 
             _jobHandle = new BuildJob {
                 Nodes = _nodes,
-                SolvedResolution = _solvedResolutionReference,
                 NormalForces = _normalForces,
                 LateralForces = _lateralForces,
                 RollSpeeds = _rollSpeeds,
-                Refinement = _refinement,
+                StartIndex = start,
+                EndIndex = end,
+                K = k,
+                HZ = hz,
                 FixedVelocity = FixedVelocity,
             }.Schedule();
-
-            _refinement++;
         }
 
-        public void Sync() {
-            _jobHandle.Complete();
-            _prevNodes.CopyFrom(_nodes);
-            _lastSolvedResolution = _solvedResolutionReference.Value;
+        private (int, int, int, float) NextChunk() {
+            const int fineNodesPerFrame = 10000;
+
+            int refinement = _refinement;
+            int maxK = 1;
+            int levels = (int)math.floor(math.log2(_nodes.Length / (float)fineNodesPerFrame));
+            bool solved = false;
+            if (levels > 0) {
+                maxK = 1 << levels;
+                int min = (1 << levels) - 1;
+                int max = (1 << (levels + 1)) - 1;
+                solved = refinement >= max;
+                if (refinement > min) {
+                    refinement = min + (refinement - min) % (max - min);
+                }
+            }
+
+            int groupIndex = 0;
+            int remaining = refinement;
+            int groupLevels = 1;
+            while (remaining >= groupLevels) {
+                remaining -= groupLevels;
+                groupIndex++;
+                groupLevels *= 2;
+            }
+
+            int k = maxK >> groupIndex;
+            k = math.max(k, 1);
+
+            int solvedK = solved ? 1 : k * 2;
+            _solvedK = _solvedK < 0 ? solvedK : math.min(solvedK, _solvedK);
+
+            int nodesPerGroup = (int)math.ceil(_nodes.Length / (float)groupLevels);
+            int start = nodesPerGroup * remaining;
+            int end = math.min(start + nodesPerGroup, _nodes.Length);
+            start = math.max(0, start - k);
+            float hz = HZ / k;
+
+            _refinement++;
+
+            return (start, end, k, hz);
         }
 
         private void OnDrawGizmos() {
@@ -224,9 +262,6 @@ namespace CoasterForge {
         private struct BuildJob : IJob {
             public NativeArray<Node> Nodes;
 
-            [WriteOnly]
-            public NativeReference<int> SolvedResolution;
-
             [ReadOnly]
             public NativeArray<float> NormalForces;
 
@@ -237,7 +272,16 @@ namespace CoasterForge {
             public NativeArray<float> RollSpeeds;
 
             [ReadOnly]
-            public int Refinement;
+            public int StartIndex;
+
+            [ReadOnly]
+            public int EndIndex;
+
+            [ReadOnly]
+            public int K;
+
+            [ReadOnly]
+            public float HZ;
 
             [ReadOnly]
             public bool FixedVelocity;
@@ -245,40 +289,8 @@ namespace CoasterForge {
             public void Execute() {
                 UpdateAnchor();
 
-                const int fineNodesPerFrame = 10000;
-                int maxK = 1;
-                int levels = (int)math.floor(math.log2(Nodes.Length / (float)fineNodesPerFrame));
-                if (levels > 0) {
-                    maxK = 1 << levels;
-                    int min = (1 << levels) - 1;
-                    int max = (1 << (levels + 1)) - 1;
-                    if (Refinement > min) {
-                        Refinement = min + (Refinement - min) % (max - min);
-                    }
-                }
-
-                int groupIndex = 0;
-                int remaining = Refinement;
-                int groupLevels = 1;
-                while (remaining >= groupLevels) {
-                    remaining -= groupLevels;
-                    groupIndex++;
-                    groupLevels *= 2;
-                }
-
-                int k = maxK >> groupIndex;
-                k = math.max(k, 1);
-
-                int nodesPerGroup = (int)math.ceil(Nodes.Length / (float)groupLevels);
-                int start = nodesPerGroup * remaining;
-                int end = math.min(start + nodesPerGroup, Nodes.Length);
-                start = math.max(0, start - k);
-                float hz = HZ / k;
-
-                const float tieSpacing = 0.8f;
-
-                for (int i = start + k; i < end; i += k) {
-                    Node prev = Nodes[i - k];
+                for (int i = StartIndex + K; i < EndIndex; i += K) {
+                    Node prev = Nodes[i - K];
                     Node node = prev;
 
                     // Assign target constraints values
@@ -291,29 +303,29 @@ namespace CoasterForge {
                     float normalForce = -math.dot(forceVec, prev.Normal) * G;
                     float lateralForce = -math.dot(forceVec, prev.Lateral) * G;
 
-                    float estimatedVelocity = math.abs(prev.HeartDistanceFromLast) < EPSILON ? prev.Velocity : prev.HeartDistanceFromLast * hz;
+                    float estimatedVelocity = math.abs(prev.HeartDistanceFromLast) < EPSILON ? prev.Velocity : prev.HeartDistanceFromLast * HZ;
                     if (math.abs(estimatedVelocity) < EPSILON) estimatedVelocity = EPSILON;
                     if (math.abs(prev.Velocity) < EPSILON) prev.Velocity = EPSILON;
 
                     // Compute curvature needed to match force vectors
                     node.Direction = math.mul(
                         math.mul(
-                            quaternion.AxisAngle(prev.Lateral, normalForce / estimatedVelocity / hz),
-                            quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / hz)
+                            quaternion.AxisAngle(prev.Lateral, normalForce / estimatedVelocity / HZ),
+                            quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / HZ)
                         ),
                         prev.Direction
                     );
                     node.Lateral = math.mul(
-                        quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / hz),
+                        quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / HZ),
                         prev.Lateral
                     );
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
-                    node.Position += node.Direction * (node.Velocity / (2f * hz))
-                        + prev.Direction * (node.Velocity / (2f * hz))
+                    node.Position += node.Direction * (node.Velocity / (2f * HZ))
+                        + prev.Direction * (node.Velocity / (2f * HZ))
                         + (prev.GetHeartPosition(HEART) - node.GetHeartPosition(HEART));
 
                     // Apply roll
-                    float deltaRoll = node.RollSpeed / hz;
+                    float deltaRoll = node.RollSpeed / HZ;
                     quaternion rollQuat = quaternion.AxisAngle(node.Direction, math.radians(-deltaRoll));
                     node.Lateral = math.normalize(math.mul(rollQuat, node.Lateral));
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
@@ -343,7 +355,7 @@ namespace CoasterForge {
                         node.Energy = 0.5f * node.Velocity * node.Velocity + pe;
                     }
                     else {
-                        node.Energy -= node.Velocity * node.Velocity * node.Velocity * RESISTANCE / hz;
+                        node.Energy -= node.Velocity * node.Velocity * node.Velocity * RESISTANCE / HZ;
                         node.Velocity = math.sqrt(2f * math.max(0, node.Energy - pe));
                     }
 
@@ -359,13 +371,13 @@ namespace CoasterForge {
                         float lateralAngle = math.radians(node.PitchFromLast * sinRoll
                             - yawScaleFactor * node.YawFromLast * cosRoll);
                         forceVec = math.up()
-                            + lateralAngle * node.Lateral * node.Velocity * hz / G
-                            + normalAngle * node.Normal * node.HeartDistanceFromLast * hz * hz / G;
+                            + lateralAngle * node.Lateral * node.Velocity * HZ / G
+                            + normalAngle * node.Normal * node.HeartDistanceFromLast * HZ * HZ / G;
                     }
                     node.NormalForce = -math.dot(forceVec, node.Normal);
                     node.LateralForce = -math.dot(forceVec, node.Lateral);
 
-                    if (node.TieDistance > tieSpacing) {
+                    if (node.TieDistance > TIE_SPACING) {
                         node.TieDistance = 0f;
                     }
                     else {
@@ -375,12 +387,12 @@ namespace CoasterForge {
                     Nodes[i] = node;
                 }
 
-                for (int i = start; i < end; i++) {
-                    if ((i - start) % k == 0) continue;
+                for (int i = StartIndex; i < EndIndex; i++) {
+                    if ((i - StartIndex) % K == 0) continue;
 
-                    int coarseIndex = i / k * k;
-                    int nextCoarseIndex = math.min(coarseIndex + k, Nodes.Length - 1);
-                    float t = (i - coarseIndex) / (float)k;
+                    int coarseIndex = i / K * K;
+                    int nextCoarseIndex = math.min(coarseIndex + K, Nodes.Length - 1);
+                    float t = (i - coarseIndex) / (float)K;
 
                     Node prev = Nodes[coarseIndex];
                     Node next = Nodes[nextCoarseIndex];
@@ -389,10 +401,6 @@ namespace CoasterForge {
                     node.Position = math.lerp(prev.Position, next.Position, t);
 
                     Nodes[i] = node;
-                }
-
-                if (end == Nodes.Length) {
-                    SolvedResolution.Value = k;
                 }
             }
 

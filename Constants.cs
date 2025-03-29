@@ -8,5 +8,6 @@ namespace CoasterForge {
         public const float CENTER = HEART * 0.9f; // Distance from track to rider center of mass in meters
         public const float FRICTION = 0.021f; // Friction coefficient
         public const float RESISTANCE = 2e-5f; // Air resistance coefficient
+        public const float TIE_SPACING = 0.8f; // Distance between track ties in meters
     }
 }
