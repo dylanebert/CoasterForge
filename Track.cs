@@ -51,10 +51,8 @@ namespace CoasterForge {
                 var node = Node.Default;
                 _nodes[i] = node;
             }
-            UpdateFunctions();
             _initialized = true;
-            _refinement = 0;
-            _solvedK = -1;
+            _dirty = true;
         }
 
         private void Dispose() {
@@ -166,44 +164,39 @@ namespace CoasterForge {
         }
 
         private (int, int, int, float) NextChunk() {
-            const int fineNodesPerFrame = 10000;
+            var refinement = new NativeReference<int>(Allocator.TempJob) { Value = _refinement };
+            var solvedK = new NativeReference<int>(Allocator.TempJob) { Value = _solvedK };
 
-            int refinement = _refinement;
-            int maxK = 1;
-            int levels = (int)math.floor(math.log2(_nodes.Length / (float)fineNodesPerFrame));
-            bool solved = false;
-            if (levels > 0) {
-                maxK = 1 << levels;
-                int min = (1 << levels) - 1;
-                int max = (1 << (levels + 1)) - 1;
-                solved = refinement >= max;
-                if (refinement > min) {
-                    refinement = min + (refinement - min) % (max - min);
-                }
-            }
+            var startReference = new NativeReference<int>(Allocator.TempJob);
+            var endReference = new NativeReference<int>(Allocator.TempJob);
+            var kReference = new NativeReference<int>(Allocator.TempJob);
+            var hzReference = new NativeReference<float>(Allocator.TempJob);
 
-            int groupIndex = 0;
-            int remaining = refinement;
-            int groupLevels = 1;
-            while (remaining >= groupLevels) {
-                remaining -= groupLevels;
-                groupIndex++;
-                groupLevels *= 2;
-            }
+            new ComputeChunkJob {
+                Refinement = refinement,
+                SolvedK = solvedK,
+                Start = startReference,
+                End = endReference,
+                K = kReference,
+                HZ = hzReference,
+                NodeCount = _nodeCount,
+            }.Schedule().Complete();
 
-            int k = maxK >> groupIndex;
-            k = math.max(k, 1);
+            _refinement = refinement.Value;
+            _solvedK = solvedK.Value;
 
-            int solvedK = solved ? 1 : k * 2;
-            _solvedK = _solvedK < 0 ? solvedK : math.min(solvedK, _solvedK);
+            int start = startReference.Value;
+            int end = endReference.Value;
+            int k = kReference.Value;
+            float hz = hzReference.Value;
 
-            int nodesPerGroup = (int)math.ceil(_nodes.Length / (float)groupLevels);
-            int start = nodesPerGroup * remaining;
-            int end = math.min(start + nodesPerGroup, _nodes.Length);
-            start = math.max(0, start - k);
-            float hz = HZ / k;
+            refinement.Dispose();
+            solvedK.Dispose();
 
-            _refinement++;
+            startReference.Dispose();
+            endReference.Dispose();
+            kReference.Dispose();
+            hzReference.Dispose();
 
             return (start, end, k, hz);
         }
@@ -255,6 +248,75 @@ namespace CoasterForge {
                 NormalForces[index] = NormalForceCurve.Evaluate(t);
                 LateralForces[index] = LateralForceCurve.Evaluate(t);
                 RollSpeeds[index] = RollSpeedCurve.Evaluate(t);
+            }
+        }
+
+        [BurstCompile]
+        private struct ComputeChunkJob : IJob {
+            public NativeReference<int> Refinement;
+            public NativeReference<int> SolvedK;
+
+            [WriteOnly]
+            public NativeReference<int> Start;
+
+            [WriteOnly]
+            public NativeReference<int> End;
+
+            [WriteOnly]
+            public NativeReference<int> K;
+
+            [WriteOnly]
+            public NativeReference<float> HZ;
+
+            [ReadOnly]
+            public int NodeCount;
+
+            public void Execute() {
+                const int fineNodesPerFrame = 10000;
+
+                int refinement = Refinement.Value;
+                int maxK = 1;
+                int levels = (int)math.floor(math.log2(NodeCount / (float)fineNodesPerFrame));
+                bool solved = false;
+                if (levels > 0) {
+                    maxK = 1 << levels;
+                    int min = (1 << levels) - 1;
+                    int max = (1 << (levels + 1)) - 1;
+                    solved = refinement >= max;
+                    if (refinement > min) {
+                        refinement = min + (refinement - min) % (max - min);
+                    }
+                }
+                else {
+                    solved = refinement >= 1;
+                }
+
+                int groupIndex = 0;
+                int remaining = refinement;
+                int groupLevels = 1;
+                while (remaining >= groupLevels) {
+                    remaining -= groupLevels;
+                    groupIndex++;
+                    groupLevels *= 2;
+                }
+
+                int k = maxK >> groupIndex;
+                k = math.max(k, 1);
+                int solvedK = solved ? 1 : k * 2;
+
+                SolvedK.Value = SolvedK.Value < 0 ? solvedK : math.min(solvedK, SolvedK.Value);
+                Refinement.Value++;
+
+                int nodesPerGroup = (int)math.ceil(NodeCount / (float)groupLevels);
+                int start = nodesPerGroup * remaining;
+                int end = math.min(start + nodesPerGroup, NodeCount);
+                start = math.max(0, start - k);
+                float hz = Constants.HZ / k;
+
+                Start.Value = start;
+                End.Value = end;
+                K.Value = k;
+                HZ.Value = hz;
             }
         }
 
