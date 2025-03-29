@@ -375,7 +375,7 @@ namespace CoasterForge {
                     // Assign target constraints values
                     node.NormalForce = NormalForces[i];
                     node.LateralForce = LateralForces[i];
-                    node.RollSpeed = RollSpeeds[i];
+                    node.RollSpeed = RollSpeeds[i] * 100f;
 
                     // Compute force vectors needed to achieve target forces
                     float3 forceVec = -node.NormalForce * prev.Normal - node.LateralForce * prev.Lateral + math.down();
