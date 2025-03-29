@@ -47,19 +47,37 @@ namespace CoasterForge {
             // TotalHeartLength: Cumulative length of the actual track
             Simulate();
 
+            // Compute intermediate node data
             var nodes = Track.Nodes;
-            var results = new NativeArray<ForwardResult>(nodes.Length, Allocator.TempJob);
+            var res0 = new NativeArray<ForwardResult>(nodes.Length, Allocator.TempJob);
             new ForwardJob {
-                Results = results,
+                Results = res0,
                 Nodes = nodes,
             }.Schedule().Complete();
 
+            // TODO: Make parameter adjustments
+
+            // Simulate the track with the new parameters
             Simulate();
+
+            // Compute intermediate node data, after adjustments
+            var res1 = new NativeArray<ForwardResult>(nodes.Length, Allocator.TempJob);
+            new ForwardJob {
+                Results = res1,
+                Nodes = nodes,
+            }.Schedule().Complete();
+
+            // TODO: Compute loss and gradients
+
+            // TODO: Apply gradients
+
+            res0.Dispose();
+            res1.Dispose();
         }
 
         private void Simulate() {
             Track.MarkDirty();
-            Track.Build();
+            Track.Build(true);
         }
 
         [BurstCompile]

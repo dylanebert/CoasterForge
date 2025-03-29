@@ -20,8 +20,8 @@ namespace CoasterForge {
         public AnimationCurve RollSpeedCurveEditor;
 #endif
 
-        private NativeArray<Node> _nodes;
-        private NativeArray<Node> _prevNodes;
+        private NativeArray<Node> _nodesRW;
+        private NativeArray<Node> _nodesRO;
         private NativeArray<float> _normalForces;
         private NativeArray<float> _lateralForces;
         private NativeArray<float> _rollSpeeds;
@@ -32,7 +32,7 @@ namespace CoasterForge {
         private bool _dirty;
         private bool _initialized;
 
-        public NativeArray<Node> Nodes => _prevNodes;
+        public NativeArray<Node> Nodes => _nodesRO;
         public int NodeCount => _nodeCount;
         public int SolvedK => _solvedK;
 
@@ -42,14 +42,14 @@ namespace CoasterForge {
             }
 
             _nodeCount = (int)(HZ * Duration);
-            _nodes = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
-            _prevNodes = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
+            _nodesRW = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
+            _nodesRO = new NativeArray<Node>(_nodeCount, Allocator.Persistent);
             _normalForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
             _lateralForces = new NativeArray<float>(_nodeCount, Allocator.Persistent);
             _rollSpeeds = new NativeArray<float>(_nodeCount, Allocator.Persistent);
             for (int i = 0; i < _nodeCount; i++) {
                 var node = Node.Default;
-                _nodes[i] = node;
+                _nodesRW[i] = node;
             }
             _initialized = true;
             _dirty = true;
@@ -57,8 +57,8 @@ namespace CoasterForge {
 
         private void Dispose() {
             if (!_initialized) return;
-            _nodes.Dispose();
-            _prevNodes.Dispose();
+            _nodesRW.Dispose();
+            _nodesRO.Dispose();
             _normalForces.Dispose();
             _lateralForces.Dispose();
             _rollSpeeds.Dispose();
@@ -126,7 +126,7 @@ namespace CoasterForge {
             _dirty = true;
         }
 
-        public void Build() {
+        public void Build(bool force = false) {
             _jobHandle.Complete();
 
             if (Duration < 0.01f) {
@@ -146,12 +146,24 @@ namespace CoasterForge {
                 _dirty = false;
             }
 
-            _prevNodes.CopyFrom(_nodes);
+            if (!force) {
+                _nodesRO.CopyFrom(_nodesRW);
+            }
 
-            (int start, int end, int k, float hz) = NextChunk();
+            int start, end, k;
+            float hz;
+            if (force) {
+                start = 0;
+                end = _nodeCount;
+                k = 1;
+                hz = HZ;
+            }
+            else {
+                (start, end, k, hz) = NextChunk();
+            }
 
             _jobHandle = new BuildJob {
-                Nodes = _nodes,
+                Nodes = _nodesRW,
                 NormalForces = _normalForces,
                 LateralForces = _lateralForces,
                 RollSpeeds = _rollSpeeds,
@@ -161,6 +173,11 @@ namespace CoasterForge {
                 HZ = hz,
                 FixedVelocity = FixedVelocity,
             }.Schedule();
+
+            if (force) {
+                _jobHandle.Complete();
+                _nodesRO.CopyFrom(_nodesRW);
+            }
         }
 
         private (int, int, int, float) NextChunk() {
@@ -202,9 +219,9 @@ namespace CoasterForge {
         }
 
         private void OnDrawGizmos() {
-            for (int i = 0; i < _prevNodes.Length; i++) {
+            for (int i = 0; i < _nodesRO.Length; i++) {
                 if (i % 100 != 0) continue;
-                var node = _prevNodes[i];
+                var node = _nodesRO[i];
                 float3 position = node.Position;
                 float3 direction = node.Direction;
                 Gizmos.color = Color.red;
