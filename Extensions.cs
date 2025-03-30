@@ -3,6 +3,7 @@ using static CoasterForge.Constants;
 using Node = CoasterForge.Track.Node;
 using Keyframe = CoasterForge.Track.Keyframe;
 using Unity.Collections;
+using UnityEngine;
 
 namespace CoasterForge {
     public static class Extensions {
@@ -56,53 +57,6 @@ namespace CoasterForge {
             }
             float3 deviation = -node.Direction * math.radians(rollSpeed * heart);
             return math.normalize(node.Lateral + deviation);
-        }
-
-        public static void Evaluate(
-            this NativeArray<Keyframe> keyframes,
-            float time,
-            out float normalForce,
-            out float lateralForce,
-            out float rollSpeed) {
-            if (keyframes.Length == 0) {
-                normalForce = 0f;
-                lateralForce = 0f;
-                rollSpeed = 0f;
-                return;
-            }
-            if (keyframes.Length == 1) {
-                normalForce = keyframes[0].NormalForce;
-                lateralForce = keyframes[0].LateralForce;
-                rollSpeed = keyframes[0].RollSpeed;
-                return;
-            }
-
-            int nextIndex = 0;
-            while (nextIndex < keyframes.Length && keyframes[nextIndex].Time < time) {
-                nextIndex++;
-            }
-
-            if (nextIndex == 0) {
-                normalForce = keyframes[0].NormalForce;
-                lateralForce = keyframes[0].LateralForce;
-                rollSpeed = keyframes[0].RollSpeed;
-                return;
-            }
-            if (nextIndex == keyframes.Length) {
-                normalForce = keyframes[^1].NormalForce;
-                lateralForce = keyframes[^1].LateralForce;
-                rollSpeed = keyframes[^1].RollSpeed;
-                return;
-            }
-
-            Keyframe k1 = keyframes[nextIndex - 1];
-            Keyframe k2 = keyframes[nextIndex];
-
-            float t = (time - k1.Time) / (k2.Time - k1.Time);
-
-            normalForce = k1.NormalForce + (k2.NormalForce - k1.NormalForce) * (1 - math.cos(t * math.PI)) * 0.5f;
-            lateralForce = k1.LateralForce + (k2.LateralForce - k1.LateralForce) * (1 - math.cos(t * math.PI)) * 0.5f;
-            rollSpeed = k1.RollSpeed + (k2.RollSpeed - k1.RollSpeed) * (1 - math.cos(t * math.PI)) * 0.5f;
         }
     }
 }

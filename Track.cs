@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
@@ -8,8 +9,9 @@ using static CoasterForge.Constants;
 
 namespace CoasterForge {
     public class Track : MonoBehaviour {
-        public List<Keyframe> Keyframes;
+        public List<Function> Functions;
         public bool FixedVelocity;
+        public bool Autobuild;
 
 #if UNITY_EDITOR
         public AnimationCurve NormalForceCurveEditor;
@@ -39,7 +41,6 @@ namespace CoasterForge {
         private bool _initialized;
 
         public NativeArray<Node> Nodes => _nodesRO;
-        public float Duration => Keyframes[^1].Time;
         public int NodeCount => _nodeCountRO.Value;
         public int SolvedK => _solvedKRO.Value;
 
@@ -85,12 +86,12 @@ namespace CoasterForge {
             _solvedKRO = new NativeReference<int>(Allocator.Persistent);
             _nodeCountRO = new NativeReference<int>(Allocator.Persistent);
 
-            if (Keyframes.Count < 2) {
-                Keyframes.Add(new Keyframe { Time = 0f, NormalForce = 1f, LateralForce = 0f, RollSpeed = 0f });
-                Keyframes.Add(new Keyframe { Time = 1f, NormalForce = 1f, LateralForce = 0f, RollSpeed = 0f });
+            if (Functions.Count == 0) {
+                Functions.Add(Function.Default);
             }
 
-            _nodeCountRW.Value = (int)(HZ * Duration);
+            float duration = GetDuration();
+            _nodeCountRW.Value = (int)(HZ * duration);
             _capacity = 65536;
             Initialize();
         }
@@ -113,7 +114,9 @@ namespace CoasterForge {
         }
 
         private void Update() {
-            Build();
+            if (Autobuild) {
+                Build();
+            }
         }
 
 #if UNITY_EDITOR
@@ -121,19 +124,40 @@ namespace CoasterForge {
             NormalForceCurveEditor.ClearKeys();
             LateralForceCurveEditor.ClearKeys();
             RollSpeedCurveEditor.ClearKeys();
-            var keyframes = new NativeArray<Keyframe>(Keyframes.Count, Allocator.Temp);
-            for (int i = 0; i < Keyframes.Count; i++) {
-                keyframes[i] = Keyframes[i];
+
+            UpdateFunctionStarts();
+
+            var functions = new NativeArray<Function>(Functions.Count, Allocator.TempJob);
+            for (int i = 0; i < Functions.Count; i++) {
+                functions[i] = Functions[i];
             }
-            int nodeCount = (int)(HZ * Duration);
-            for (int i = 0; i < nodeCount; i += 100) {
-                float t = i / (float)nodeCount;
-                keyframes.Evaluate(t, out float normalForce, out float lateralForce, out float rollSpeed);
-                NormalForceCurveEditor.AddKey(t, normalForce);
-                LateralForceCurveEditor.AddKey(t, lateralForce);
-                RollSpeedCurveEditor.AddKey(t, rollSpeed);
+
+            float duration = GetDuration();
+            int nodeCount = (int)(HZ * duration);
+            var nodeCountRef = new NativeReference<int>(Allocator.TempJob) { Value = nodeCount };
+            var curve = new NativeArray<Keyframe>(nodeCount, Allocator.TempJob);
+
+            new ComputeCurveJob {
+                Curve = curve,
+                Functions = functions,
+                NodeCount = nodeCountRef,
+            }.Run();
+
+            for (int i = 0; i < nodeCount; i += 50) {
+                var point = curve[i];
+
+                var normalKey = new UnityEngine.Keyframe(point.Time, point.NormalForce) { weightedMode = WeightedMode.None };
+                var lateralKey = new UnityEngine.Keyframe(point.Time, point.LateralForce) { weightedMode = WeightedMode.None };
+                var rollKey = new UnityEngine.Keyframe(point.Time, point.RollSpeed) { weightedMode = WeightedMode.None };
+
+                NormalForceCurveEditor.AddKey(normalKey);
+                LateralForceCurveEditor.AddKey(lateralKey);
+                RollSpeedCurveEditor.AddKey(rollKey);
             }
-            keyframes.Dispose();
+
+            functions.Dispose();
+            nodeCountRef.Dispose();
+            curve.Dispose();
         }
 #endif
 
@@ -153,26 +177,30 @@ namespace CoasterForge {
                 _solvedKRO.Value = _solvedKRW.Value;
             }
 
-            if (Duration < 0.01f) {
+            float duration = GetDuration();
+
+            if (duration < 0.01f) {
                 return default;
             }
 
-            _nodeCountRW.Value = (int)(HZ * Duration);
+            _nodeCountRW.Value = (int)(HZ * duration);
             if (_nodeCountRW.Value > _capacity) {
                 Initialize();
             }
 
             if (_dirty || force) {
-                var keyframes = new NativeArray<Keyframe>(Keyframes.Count, Allocator.TempJob);
-                for (int i = 0; i < Keyframes.Count; i++) {
-                    keyframes[i] = Keyframes[i];
+                UpdateFunctionStarts();
+
+                var functions = new NativeArray<Function>(Functions.Count, Allocator.TempJob);
+                for (int i = 0; i < Functions.Count; i++) {
+                    functions[i] = Functions[i];
                 }
-                _jobHandle = new UpdateFunctionsJob {
+                _jobHandle = new ComputeCurveJob {
                     Curve = _curve,
-                    Keyframes = keyframes,
+                    Functions = functions,
                     NodeCount = _nodeCountRW,
                 }.Schedule(_jobHandle);
-                _jobHandle = keyframes.Dispose(_jobHandle);
+                _jobHandle = functions.Dispose(_jobHandle);
 
                 _refinementRW.Value = 0;
                 _solvedKRW.Value = -1;
@@ -220,6 +248,27 @@ namespace CoasterForge {
             }
 
             return _jobHandle;
+        }
+
+        public float GetDuration() {
+            float duration = 0f;
+            for (int i = 0; i < Functions.Count; i++) {
+                duration += Functions[i].Duration;
+            }
+            return duration;
+        }
+
+        private void UpdateFunctionStarts() {
+            for (int i = 1; i < Functions.Count; i++) {
+                var prevFunc = Functions[i - 1];
+                var func = Functions[i];
+
+                func.StartNormalForce = prevFunc.GetEndNormalForce();
+                func.StartLateralForce = prevFunc.GetEndLateralForce();
+                func.StartRollSpeed = prevFunc.GetEndRollSpeed();
+
+                Functions[i] = func;
+            }
         }
 
         private void OnDrawGizmos() {
@@ -300,20 +349,47 @@ namespace CoasterForge {
         }
 
         [BurstCompile]
-        private struct UpdateFunctionsJob : IJob {
+        private struct ComputeCurveJob : IJob {
             [WriteOnly]
             public NativeArray<Keyframe> Curve;
 
             [ReadOnly]
-            public NativeArray<Keyframe> Keyframes;
+            public NativeArray<Function> Functions;
 
             [ReadOnly]
             public NativeReference<int> NodeCount;
 
             public void Execute() {
+                float normalForce = Functions[0].StartNormalForce;
+                float lateralForce = Functions[0].StartLateralForce;
+                float rollSpeed = Functions[0].StartRollSpeed;
+
+                float totalTime = 0f;
+                int currentFunction = 0;
+
                 for (int i = 0; i < NodeCount.Value; i++) {
-                    float t = i / (float)NodeCount.Value;
-                    Keyframes.Evaluate(t, out float normalForce, out float lateralForce, out float rollSpeed);
+                    float t = i / HZ;
+
+                    while (currentFunction < Functions.Length - 1 &&
+                        totalTime + Functions[currentFunction].Duration < t) {
+                        totalTime += Functions[currentFunction].Duration;
+                        currentFunction++;
+                    }
+
+                    if (currentFunction < Functions.Length) {
+                        var func = Functions[currentFunction];
+                        float segmentT = (t - totalTime) / func.Duration;
+
+                        float normalT = ComputeInterpolation(func.NormalBlend, segmentT);
+                        normalForce = func.StartNormalForce + func.NormalForceAmplitude * normalT;
+
+                        float lateralT = ComputeInterpolation(func.LateralBlend, segmentT);
+                        lateralForce = func.StartLateralForce + func.LateralForceAmplitude * lateralT;
+
+                        float rollT = ComputeInterpolation(func.RollSpeedBlend, segmentT);
+                        rollSpeed = func.StartRollSpeed + func.RollSpeedAmplitude * rollT;
+                    }
+
                     Curve[i] = new Keyframe {
                         Time = t,
                         NormalForce = normalForce,
@@ -321,6 +397,12 @@ namespace CoasterForge {
                         RollSpeed = rollSpeed,
                     };
                 }
+            }
+
+            private float ComputeInterpolation(float blend, float t) {
+                float quarticT = t * t * (16f + t * (-32f + t * 16f));
+                float cubicT = t * t * (3f - 2f * t);
+                return math.lerp(quarticT, cubicT, blend);
             }
         }
 
@@ -466,6 +548,7 @@ namespace CoasterForge {
                     node.Lateral = math.normalize(math.mul(rollQuat, node.Lateral));
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
                     node.Roll = math.degrees(math.atan2(node.Lateral.y, -node.Normal.y));
+                    node.Roll = (node.Roll + 540) % 360 - 180;
 
                     // Compute node metrics
                     node.DistanceFromLast = math.distance(node.GetHeartPosition(HEART), prev.GetHeartPosition(HEART));
@@ -590,7 +673,7 @@ namespace CoasterForge {
             };
 
             public override string ToString() {
-                System.Text.StringBuilder sb = new();
+                StringBuilder sb = new();
                 sb.AppendLine($"Position: {Position}");
                 sb.AppendLine($"Direction: {Direction}");
                 sb.AppendLine($"Lateral: {Lateral}");
@@ -614,22 +697,91 @@ namespace CoasterForge {
         }
 
         [System.Serializable]
+        public struct Function {
+            public float Duration;
+
+            [Header("Normal Force")]
+            public float NormalBlend;
+            public float StartNormalForce;
+            public float NormalForceAmplitude;
+
+            [Header("Lateral Force")]
+            public float LateralBlend;
+            public float StartLateralForce;
+            public float LateralForceAmplitude;
+
+            [Header("Roll Speed")]
+            public float RollSpeedBlend;
+            public float StartRollSpeed;
+            public float RollSpeedAmplitude;
+
+            public static Function Default => new() {
+                Duration = 0.1f,
+                NormalBlend = 0.5f,
+                StartNormalForce = 1f,
+                NormalForceAmplitude = 0f,
+                LateralBlend = 0.5f,
+                StartLateralForce = 0f,
+                LateralForceAmplitude = 0f,
+                RollSpeedBlend = 0.5f,
+                StartRollSpeed = 0f,
+                RollSpeedAmplitude = 0f,
+            };
+
+            public float GetMaxNormalForce() {
+                return math.max(StartNormalForce, StartNormalForce + NormalForceAmplitude);
+            }
+
+            public float GetMinNormalForce() {
+                return math.min(StartNormalForce, StartNormalForce + NormalForceAmplitude);
+            }
+
+            public float GetMaxLateralForce() {
+                return math.max(StartLateralForce, StartLateralForce + LateralForceAmplitude);
+            }
+
+            public float GetMinLateralForce() {
+                return math.min(StartLateralForce, StartLateralForce + LateralForceAmplitude);
+            }
+
+            public float GetMaxRollSpeed() {
+                return math.max(StartRollSpeed, StartRollSpeed + RollSpeedAmplitude);
+            }
+
+            public float GetMinRollSpeed() {
+                return math.min(StartRollSpeed, StartRollSpeed + RollSpeedAmplitude);
+            }
+
+            public float GetEndNormalForce() {
+                return StartNormalForce + NormalForceAmplitude * NormalBlend;
+            }
+
+            public float GetEndLateralForce() {
+                return StartLateralForce + LateralForceAmplitude * LateralBlend;
+            }
+
+            public float GetEndRollSpeed() {
+                return StartRollSpeed + RollSpeedAmplitude * RollSpeedBlend;
+            }
+
+            public override string ToString() {
+                StringBuilder sb = new();
+                sb.AppendLine($"Duration: {Duration}");
+                sb.AppendLine($"NormalBlend: {NormalBlend}");
+                sb.AppendLine($"NormalForceAmplitude: {NormalForceAmplitude}");
+                sb.AppendLine($"LateralBlend: {LateralBlend}");
+                sb.AppendLine($"LateralForceAmplitude: {LateralForceAmplitude}");
+                sb.AppendLine($"RollSpeedBlend: {RollSpeedBlend}");
+                sb.AppendLine($"RollSpeedAmplitude: {RollSpeedAmplitude}");
+                return sb.ToString();
+            }
+        }
+
         public struct Keyframe {
             public float Time;
             public float NormalForce;
             public float LateralForce;
             public float RollSpeed;
-
-            public override string ToString() {
-                return $"Time: {Time}, NormalForce: {NormalForce}, LateralForce: {LateralForce}, RollSpeed: {RollSpeed}";
-            }
-
-            public static Keyframe Default => new() {
-                Time = 1f,
-                NormalForce = 1f,
-                LateralForce = 0f,
-                RollSpeed = 0f,
-            };
         }
     }
 }

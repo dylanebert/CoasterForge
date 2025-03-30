@@ -3,36 +3,82 @@ using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
+using static CoasterForge.ControlPoint;
+using static CoasterForge.Track;
 
 namespace CoasterForge {
     public class Optimizer : MonoBehaviour {
-        private const int NUM_TRACKS = 6; // 6 gradients
+        private const int N_GRADIENTS = 5 * 2;
+        private const int N_INITIALIZATIONS = 4;
+        private const int N_TRACKS = N_GRADIENTS * N_INITIALIZATIONS;
+
+        private const float LEARNING_RATE = 0.1f; // Initial learning rate
+        private const float MIN_LEARNING_RATE = 1e-6f; // Minimum learning rate
+        private const float DECAY_THRESHOLD = 0.01f; // Minimum loss decrease to apply decay
+        private const float FADE_THRESHOLD = 0.01f; // Learning rate to start optimizing fade
+        private const float EPSILON = 0.001f; // Gradient step size
+        private const float BETA1 = 0.9f; // Exponential decay rate for first moment
+        private const float BETA2 = 0.999f; // Exponential decay rate for second moment
+        private const float EPSILON_ADAM = 1e-8f; // Small constant to prevent division by zero
+        private const float LEARNING_RATE_DECAY = 0.99f; // Decay rate for learning rate
 
         public Track Track;
-        public Transform ControlPoint;
-        public float LearningRate = 0.001f;
-        public float GradientClipThreshold = 1f;
-        public float Epsilon = 0.001f;
-        public float LossThreshold = 0.001f;
-        public float Beta1 = 0.9f;
-        public float Beta2 = 0.999f;
-        public float EpsilonAdam = 1e-8f;
-        public float NoiseScale = 0.01f;
-        public float LearningRateDecay = 0.995f;
+        public ControlPoint ControlPoint;
 
-        private Track[] _tracks;
+        private Track[] _tracks = new Track[N_TRACKS];
+        private Function[] _functions = new Function[N_INITIALIZATIONS];
+        private Gradient[] _gradients = new Gradient[N_INITIALIZATIONS];
+        private float[] _losses = new float[N_INITIALIZATIONS];
+
         private float _learningRate;
+        private float _bestLoss;
         private float _mt, _vt;
         private float _mnF, _vnF;
         private float _mrS, _vrS;
 
-        private float3 _previousControlPointPosition;
         private int _t;
 
+        public void AddControlPoint() {
+            var newFunction = Function.Default;
+
+            Track.Functions.Add(newFunction);
+            for (int i = 0; i < N_TRACKS; i++) {
+                _tracks[i].Functions[^1] = Track.Functions[^2];
+                _tracks[i].Functions.Add(newFunction);
+            }
+
+            Initialize();
+        }
+
+        public void RemoveControlPoint() {
+            if (Track.Functions.Count <= 1) {
+                Debug.LogWarning("Cannot remove last control point");
+                return;
+            }
+
+            Track.Functions.RemoveAt(Track.Functions.Count - 1);
+            for (int i = 0; i < N_TRACKS; i++) {
+                _tracks[i].Functions.RemoveAt(_tracks[i].Functions.Count - 1);
+            }
+
+            ResetControlPoint();
+            Initialize();
+        }
+
+        private void ResetControlPoint() {
+            Track.Build(true).Complete();
+
+            var node = Track.Nodes[Track.NodeCount - 1];
+            ControlPoint.transform.position = node.Position;
+        }
+
         private void Start() {
-            _tracks = new Track[NUM_TRACKS];
-            for (int i = 0; i < NUM_TRACKS; i++) {
+            for (int i = 0; i < N_TRACKS; i++) {
+                int initialization = i / N_GRADIENTS;
+                int gradient = i % N_GRADIENTS;
                 _tracks[i] = Instantiate(Track, transform);
+                _tracks[i].name = $"Initialization {initialization} Gradient {gradient}";
+                _tracks[i].Autobuild = false;
             }
 
             Initialize();
@@ -45,139 +91,309 @@ namespace CoasterForge {
         }
 
         private void Initialize() {
-            Track.Keyframes[^1] = Track.Keyframe.Default;
-            _learningRate = LearningRate;
+            for (int i = 0; i < N_INITIALIZATIONS; i++) {
+                _functions[i] = Function.Default;
+                _functions[i].NormalBlend = i % 2 == 0 ? 0.01f : 0.99f;
+                _functions[i].RollSpeedBlend = i / 2 % 2 == 0 ? 0.01f : 0.99f;
+                _losses[i] = float.MaxValue;
+            }
+            _learningRate = LEARNING_RATE;
+            _bestLoss = float.MaxValue;
             _mt = _vt = 0f;
             _mnF = _vnF = 0f;
             _mrS = _vrS = 0f;
             _t = 0;
-            _previousControlPointPosition = ControlPoint.position;
         }
 
         private void Update() {
-            CheckReinitialize();
+            if (ControlPoint.Dirty) {
+                Initialize();
+                ControlPoint.Dirty = false;
+            }
 
-            var gradient = ComputeGradient();
+            ComputeGradients();
 
-            var keyframe = Track.Keyframes[^1];
+            float bestLoss = float.MaxValue;
+            int bestIndex = 0;
+
             _t++;
-            _learningRate *= LearningRateDecay;
 
-            UpdateParameter(ref keyframe.Time, gradient.Time, ref _mt, ref _vt, _learningRate);
-            UpdateParameter(ref keyframe.NormalForce, gradient.NormalForce, ref _mnF, ref _vnF, _learningRate);
-            UpdateParameter(ref keyframe.RollSpeed, gradient.RollSpeed, ref _mrS, ref _vrS, _learningRate);
+            for (int i = 0; i < N_INITIALIZATIONS; i++) {
+                if (ControlPoint.Mode == ConstraintMode.Duration) {
+                    _functions[i].Duration = ControlPoint.TargetDuration;
+                }
+                else {
+                    UpdateParameter(ref _functions[i].Duration, _gradients[i].Duration, ref _mt, ref _vt, _learningRate, ActivationType.Log);
+                }
 
-            Track.Keyframes[^1] = keyframe;
+                UpdateParameter(ref _functions[i].NormalForceAmplitude, _gradients[i].NormalForceAmplitude, ref _mnF, ref _vnF, _learningRate, ActivationType.Linear);
+                UpdateParameter(ref _functions[i].RollSpeedAmplitude, _gradients[i].RollSpeedAmplitude, ref _mrS, ref _vrS, _learningRate, ActivationType.Linear);
+
+                if (_learningRate < FADE_THRESHOLD) {
+                    UpdateParameter(ref _functions[i].NormalBlend, _gradients[i].NormalForceBlend, ref _mnF, ref _vnF, _learningRate, ActivationType.Sigmoid);
+                    UpdateParameter(ref _functions[i].RollSpeedBlend, _gradients[i].RollSpeedBlend, ref _mrS, ref _vrS, _learningRate, ActivationType.Sigmoid);
+                }
+
+                if (_gradients[i].Loss < bestLoss) {
+                    bestLoss = _gradients[i].Loss;
+                    bestIndex = i;
+                }
+            }
+
+            bool shouldDecay = bestLoss > _bestLoss - DECAY_THRESHOLD;
+            _bestLoss = math.min(_bestLoss, bestLoss);
+
+            if (shouldDecay) {
+                _learningRate *= LEARNING_RATE_DECAY;
+                _learningRate = math.max(_learningRate, MIN_LEARNING_RATE);
+            }
+
+            Track.Functions[^1] = _functions[bestIndex];
             Track.MarkDirty();
         }
 
-        private void CheckReinitialize() {
-            if (math.distancesq(_previousControlPointPosition, ControlPoint.position) > 1f) {
-                Initialize();
+        private void UpdateParameter(ref float param, float gradient, ref float m, ref float v, float lr, ActivationType activationType) {
+            float param_hat = activationType switch {
+                ActivationType.Log => Log(param),
+                ActivationType.Sigmoid => InverseSigmoid(param),
+                _ => param
+            };
+            m = BETA1 * m + (1 - BETA1) * gradient;
+            v = BETA2 * v + (1 - BETA2) * gradient * gradient;
+            float m_hat = m / (1 - math.pow(BETA1, _t));
+            float v_hat = v / (1 - math.pow(BETA2, _t));
+            param_hat -= lr * m_hat / (math.sqrt(v_hat) + EPSILON_ADAM);
+            param = activationType switch {
+                ActivationType.Log => InverseLog(param_hat),
+                ActivationType.Sigmoid => Sigmoid(param_hat),
+                _ => param_hat
+            };
+        }
+
+        private void ComputeGradients() {
+            for (int i = 0; i < N_INITIALIZATIONS; i++) {
+                var originalFunction = _functions[i];
+
+                // Duration (log)
+                float logDuration = Log(originalFunction.Duration);
+
+                var durationPlusFunction = originalFunction;
+                durationPlusFunction.Duration = InverseLog(logDuration + EPSILON);
+                _tracks[i * N_GRADIENTS + 0].Functions[^1] = durationPlusFunction;
+
+                var durationMinusFunction = originalFunction;
+                durationMinusFunction.Duration = InverseLog(logDuration - EPSILON);
+                _tracks[i * N_GRADIENTS + 1].Functions[^1] = durationMinusFunction;
+
+                // Normal Force Amplitude
+                var normalForceAmplitudePlusFunction = originalFunction;
+                normalForceAmplitudePlusFunction.NormalForceAmplitude += EPSILON;
+                _tracks[i * N_GRADIENTS + 2].Functions[^1] = normalForceAmplitudePlusFunction;
+
+                var normalForceAmplitudeMinusFunction = originalFunction;
+                normalForceAmplitudeMinusFunction.NormalForceAmplitude -= EPSILON;
+                _tracks[i * N_GRADIENTS + 3].Functions[^1] = normalForceAmplitudeMinusFunction;
+
+                // Roll Speed Amplitude
+                var rollSpeedAmplitudePlusFunction = originalFunction;
+                rollSpeedAmplitudePlusFunction.RollSpeedAmplitude += EPSILON;
+                _tracks[i * N_GRADIENTS + 4].Functions[^1] = rollSpeedAmplitudePlusFunction;
+
+                var rollSpeedAmplitudeMinusFunction = originalFunction;
+                rollSpeedAmplitudeMinusFunction.RollSpeedAmplitude -= EPSILON;
+                _tracks[i * N_GRADIENTS + 5].Functions[^1] = rollSpeedAmplitudeMinusFunction;
+
+                // Normal Force Blend
+                var normalForceBlendPlusFunction = originalFunction;
+                normalForceBlendPlusFunction.NormalBlend += EPSILON;
+                _tracks[i * N_GRADIENTS + 6].Functions[^1] = normalForceBlendPlusFunction;
+
+                var normalForceBlendMinusFunction = originalFunction;
+                normalForceBlendMinusFunction.NormalBlend -= EPSILON;
+                _tracks[i * N_GRADIENTS + 7].Functions[^1] = normalForceBlendMinusFunction;
+
+                // Roll Speed Blend
+                var rollSpeedBlendPlusFunction = originalFunction;
+                rollSpeedBlendPlusFunction.RollSpeedBlend += EPSILON;
+                _tracks[i * N_GRADIENTS + 8].Functions[^1] = rollSpeedBlendPlusFunction;
+
+                var rollSpeedBlendMinusFunction = originalFunction;
+                rollSpeedBlendMinusFunction.RollSpeedBlend -= EPSILON;
+                _tracks[i * N_GRADIENTS + 9].Functions[^1] = rollSpeedBlendMinusFunction;
             }
-        }
-
-        public void LogLoss() {
-            ComputeLoss(Track, ControlPoint.position, true);
-        }
-
-        private void UpdateParameter(ref float param, float gradient, ref float m, ref float v, float rate) {
-            gradient = math.clamp(gradient, -GradientClipThreshold, GradientClipThreshold);
-            m = Beta1 * m + (1 - Beta1) * gradient;
-            v = Beta2 * v + (1 - Beta2) * gradient * gradient;
-            float m_hat = m / (1 - math.pow(Beta1, _t));
-            float v_hat = v / (1 - math.pow(Beta2, _t));
-            param -= rate * m_hat / (math.sqrt(v_hat) + EpsilonAdam);
-        }
-
-        private Gradient ComputeGradient() {
-            var originalKeyframe = Track.Keyframes[^1];
-
-            var timePlusKeyframe = originalKeyframe;
-            timePlusKeyframe.Time += Epsilon;
-            _tracks[0].Keyframes[^1] = timePlusKeyframe;
-
-            var timeMinusKeyframe = originalKeyframe;
-            timeMinusKeyframe.Time -= Epsilon;
-            _tracks[1].Keyframes[^1] = timeMinusKeyframe;
-
-            var normalForcePlusKeyframe = originalKeyframe;
-            normalForcePlusKeyframe.NormalForce += Epsilon;
-            _tracks[2].Keyframes[^1] = normalForcePlusKeyframe;
-
-            var normalForceMinusKeyframe = originalKeyframe;
-            normalForceMinusKeyframe.NormalForce -= Epsilon;
-            _tracks[3].Keyframes[^1] = normalForceMinusKeyframe;
-
-            var rollSpeedPlusKeyframe = originalKeyframe;
-            rollSpeedPlusKeyframe.RollSpeed += Epsilon;
-            _tracks[4].Keyframes[^1] = rollSpeedPlusKeyframe;
-
-            var rollSpeedMinusKeyframe = originalKeyframe;
-            rollSpeedMinusKeyframe.RollSpeed -= Epsilon;
-            _tracks[5].Keyframes[^1] = rollSpeedMinusKeyframe;
 
             Simulate().Complete();
 
-            float timeLossPlus = ComputeLoss(_tracks[0], ControlPoint.position);
-            float timeLossMinus = ComputeLoss(_tracks[1], ControlPoint.position);
+            for (int i = 0; i < N_INITIALIZATIONS; i++) {
+                float durationLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 0], true);
+                float durationLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 1]);
 
-            float normalForceLossPlus = ComputeLoss(_tracks[2], ControlPoint.position);
-            float normalForceLossMinus = ComputeLoss(_tracks[3], ControlPoint.position);
+                float normalForceAmplitudeLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 2]);
+                float normalForceAmplitudeLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 3]);
 
-            float rollSpeedLossPlus = ComputeLoss(_tracks[4], ControlPoint.position);
-            float rollSpeedLossMinus = ComputeLoss(_tracks[5], ControlPoint.position);
+                float rollSpeedAmplitudeLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 4]);
+                float rollSpeedAmplitudeLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 5]);
 
-            var gradient = new Gradient {
-                Time = (timeLossPlus - timeLossMinus) / (2 * Epsilon),
-                NormalForce = (normalForceLossPlus - normalForceLossMinus) / (2 * Epsilon),
-                RollSpeed = (rollSpeedLossPlus - rollSpeedLossMinus) / (2 * Epsilon),
-            };
+                float normalForceBlendLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 6]);
+                float normalForceBlendLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 7]);
 
-            return gradient;
+                float rollSpeedBlendLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 8]);
+                float rollSpeedBlendLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 9]);
+
+                float minLoss = math.min(math.min(math.min(math.min(math.min(math.min(math.min(math.min(math.min(
+                    durationLossPlus, durationLossMinus),
+                    normalForceAmplitudeLossPlus),
+                    normalForceAmplitudeLossMinus),
+                    rollSpeedAmplitudeLossPlus),
+                    rollSpeedAmplitudeLossMinus),
+                    normalForceBlendLossPlus),
+                    normalForceBlendLossMinus),
+                    rollSpeedBlendLossPlus),
+                    rollSpeedBlendLossMinus);
+
+                _gradients[i] = new Gradient {
+                    Loss = minLoss,
+                    Duration = (durationLossPlus - durationLossMinus) / (2 * EPSILON),
+                    NormalForceAmplitude = (normalForceAmplitudeLossPlus - normalForceAmplitudeLossMinus) / (2 * EPSILON),
+                    RollSpeedAmplitude = (rollSpeedAmplitudeLossPlus - rollSpeedAmplitudeLossMinus) / (2 * EPSILON),
+                    NormalForceBlend = (normalForceBlendLossPlus - normalForceBlendLossMinus) / (2 * EPSILON) * 0.1f,
+                    RollSpeedBlend = (rollSpeedBlendLossPlus - rollSpeedBlendLossMinus) / (2 * EPSILON) * 0.1f,
+                };
+            }
         }
 
-        private float ComputeLoss(Track track, float3 controlPoint, bool log = false) {
+        private float Log(float x) {
+            return math.log(x);
+        }
+
+        private float InverseLog(float x) {
+            return math.exp(x);
+        }
+
+        private float Sigmoid(float x) {
+            return 1f / (1f + math.exp(-x));
+        }
+
+        private float InverseSigmoid(float x) {
+            return math.log(x / (1f - x));
+        }
+
+        private float Angle(float a, float b) {
+            float diff = (a - b + 180f) % 360f - 180f;
+            return math.abs(diff);
+        }
+
+        private float ComputeLoss(Track track, bool log = false) {
             int nodeCount = track.NodeCount;
             var nodes = track.Nodes;
 
-            float positionLoss = math.distancesq(nodes[nodeCount - 1].Position, controlPoint);
+            var lastFunction = track.Functions[^1];
+            var lastNode = nodes[nodeCount - 1];
+
+            float totalLoss = 0f;
+
+            // Constraint-based loss
+            float targetPositionLoss, targetRollLoss, targetNormalForceLoss, targetPitchLoss, targetYawLoss;
+            targetPositionLoss = ControlPoint.Mode switch {
+                ConstraintMode.Position => math.distancesq(lastNode.Position, ControlPoint.transform.position),
+                _ => 0f,
+            };
+            targetRollLoss = ControlPoint.ConstrainRoll ? Angle(lastNode.Roll, ControlPoint.Roll) : 0f;
+            targetNormalForceLoss = ControlPoint.ConstrainNormalForce ? math.abs(ControlPoint.NormalForce - lastNode.NormalForce) : 0f;
+            targetPitchLoss = ControlPoint.ConstrainPitch ? Angle(ControlPoint.Pitch, lastNode.GetPitch()) : 0f;
+            targetYawLoss = ControlPoint.ConstrainYaw ? Angle(ControlPoint.Yaw, lastNode.GetYaw()) : 0f;
+
+            targetPositionLoss *= 1f;
+            targetNormalForceLoss *= 10f;
+            targetRollLoss *= 1f;
+            targetPitchLoss *= 1f;
+            targetYawLoss *= 1f;
+
+            totalLoss += targetPositionLoss
+                + targetNormalForceLoss
+                + targetRollLoss
+                + targetPitchLoss
+                + targetYawLoss;
+
+            // Heuristic loss
+            float durationLoss, normalForceLoss, rollSpeedLoss, extremeNormalForceLoss, extremeRollSpeedLoss;
+            durationLoss = ControlPoint.Mode switch {
+                ConstraintMode.Duration => 0f,
+                _ => lastFunction.Duration,
+            };
+
+            float blendScaling = math.lerp(0.25f, 1f, lastFunction.NormalBlend);
+
+            float dv = lastFunction.NormalForceAmplitude;
+            float dt = lastFunction.Duration * blendScaling;
+            normalForceLoss = math.abs(dv / dt);
+
+            dv = lastFunction.RollSpeedAmplitude;
+            dt = lastFunction.Duration * blendScaling;
+            rollSpeedLoss = math.abs(dv / dt);
+
+            (float min, float max) = (-1f, 6f);
+            float minNormalForce = lastFunction.GetMinNormalForce();
+            float maxNormalForce = lastFunction.GetMaxNormalForce();
+            if (minNormalForce < min) {
+                extremeNormalForceLoss = min - minNormalForce;
+            }
+            else if (maxNormalForce > max) {
+                extremeNormalForceLoss = maxNormalForce - max;
+            }
+            else {
+                extremeNormalForceLoss = 0f;
+            }
+
+            (min, max) = (-10f, 10f);
+            float minRollSpeed = lastFunction.GetMinRollSpeed();
+            float maxRollSpeed = lastFunction.GetMaxRollSpeed();
+            if (minRollSpeed < min) {
+                extremeRollSpeedLoss = min - minRollSpeed;
+            }
+            else if (maxRollSpeed > max) {
+                extremeRollSpeedLoss = max - maxRollSpeed;
+            }
+            else {
+                extremeRollSpeedLoss = 0f;
+            }
+
+            durationLoss *= 0.001f;
+            normalForceLoss *= 0.1f;
+            rollSpeedLoss *= 0.1f;
+            extremeNormalForceLoss *= 10f;
+            extremeRollSpeedLoss *= 10f;
+
+            totalLoss += durationLoss
+                + normalForceLoss
+                + rollSpeedLoss
+                + extremeNormalForceLoss
+                + extremeRollSpeedLoss;
 
             if (log) {
                 StringBuilder sb = new();
-                sb.AppendLine($"positionLoss: {positionLoss}");
+                sb.AppendLine($"Total Loss: {totalLoss}");
+                sb.AppendLine($"Position Loss: {targetPositionLoss}");
+                sb.AppendLine($"Duration Loss: {durationLoss}");
+                sb.AppendLine($"Target Normal Force Loss: {targetNormalForceLoss}");
+                sb.AppendLine($"Target Roll Loss: {targetRollLoss}");
+                sb.AppendLine($"Target Pitch Loss: {targetPitchLoss}");
+                sb.AppendLine($"Target Yaw Loss: {targetYawLoss}");
+                sb.AppendLine($"Normal Force Loss: {normalForceLoss}");
+                sb.AppendLine($"Roll Speed Loss: {rollSpeedLoss}");
+                sb.AppendLine($"Extreme Normal Force Loss: {extremeNormalForceLoss}");
+                sb.AppendLine($"Extreme Roll Speed Loss: {extremeRollSpeedLoss}");
+                sb.AppendLine($"Normal Force: {lastNode.NormalForce}");
+                sb.AppendLine($"Roll: {lastNode.Roll}");
+                sb.AppendLine($"Pitch: {lastNode.GetPitch()}");
+                sb.AppendLine($"Yaw: {lastNode.GetYaw()}");
                 Debug.Log(sb.ToString());
             }
 
-            return positionLoss;
+            return totalLoss;
         }
 
         private JobHandle Simulate() {
-            /* 
-            Compute track nodes from duration, normal forces, and roll speeds
-            Nodes are indexed by time, one node every 0.001s
-            The nodes pass through the rider center, not the track
-            The term "heart" refers to an offset from the rider center, e.g. the actual track
-            Each node contains:
-            Position: World space [x, y, z] in meters
-            Direction: Node forward vector
-            Lateral: Node right vector
-            Normal: Node up vector
-            Roll: Banking in degrees
-            Velocity: m/s
-            Energy: Potential + kinetic
-            NormalForce: gs
-            LateralForce: gs
-            RollSpeed: deg/s
-            DistanceFromLast: Distance from position to previous position
-            HeartDistanceFromLast: Distance from track position to previous track position
-            AngleFromLast: Combined angle from previous in degrees
-            PitchFromLast: Pitch from previous in degrees
-            YawFromLast: Yaw from previous in degrees
-            RollSpeed: deg/s
-            TotalLength: Cumulative length of the nodes
-            TotalHeartLength: Cumulative length of the actual track
-            */
             NativeArray<JobHandle> jobHandles = new(_tracks.Length, Allocator.Temp);
             for (int i = 0; i < _tracks.Length; i++) {
                 jobHandles[i] = _tracks[i].Build(true);
@@ -187,10 +403,30 @@ namespace CoasterForge {
             return combinedHandle;
         }
 
+        private enum ActivationType {
+            Linear,
+            Log,
+            Sigmoid,
+        }
+
         private struct Gradient {
-            public float Time;
-            public float NormalForce;
-            public float RollSpeed;
+            public float Loss;
+            public float Duration;
+            public float NormalForceAmplitude;
+            public float RollSpeedAmplitude;
+            public float NormalForceBlend;
+            public float RollSpeedBlend;
+
+            public override string ToString() {
+                StringBuilder sb = new();
+                sb.AppendLine($"Loss: {Loss}");
+                sb.AppendLine($"Duration: {Duration}");
+                sb.AppendLine($"NormalForceAmplitude: {NormalForceAmplitude}");
+                sb.AppendLine($"RollSpeedAmplitude: {RollSpeedAmplitude}");
+                sb.AppendLine($"NormalForceBlend: {NormalForceBlend}");
+                sb.AppendLine($"RollSpeedBlend: {RollSpeedBlend}");
+                return sb.ToString();
+            }
         }
     }
 }

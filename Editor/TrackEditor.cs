@@ -6,11 +6,11 @@ namespace CoasterForge.Editor {
     public class TrackEditor : UnityEditor.Editor {
         public override void OnInspectorGUI() {
             DrawPropertiesExcluding(serializedObject,
-                "Keyframes", "NormalForceCurveEditor", "LateralForceCurveEditor", "RollSpeedCurveEditor"
+                "Functions", "NormalForceCurveEditor", "LateralForceCurveEditor", "RollSpeedCurveEditor"
             );
 
             EditorGUI.BeginChangeCheck();
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("Keyframes"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("Functions"));
             if (EditorGUI.EndChangeCheck()) {
                 var track = target as Track;
                 track.MarkDirty();
