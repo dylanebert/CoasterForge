@@ -380,13 +380,13 @@ namespace CoasterForge {
                         var func = Functions[currentFunction];
                         float segmentT = (t - totalTime) / func.Duration;
 
-                        float normalT = ComputeInterpolation(func.NormalBlend, segmentT);
+                        float normalT = ComputeInterpolation(segmentT);
                         normalForce = func.StartNormalForce + func.NormalForceAmplitude * normalT;
 
-                        float lateralT = ComputeInterpolation(func.LateralBlend, segmentT);
+                        float lateralT = ComputeInterpolation(segmentT);
                         lateralForce = func.StartLateralForce + func.LateralForceAmplitude * lateralT;
 
-                        float rollT = ComputeInterpolation(func.RollSpeedBlend, segmentT);
+                        float rollT = ComputeInterpolation(segmentT);
                         rollSpeed = func.StartRollSpeed + func.RollSpeedAmplitude * rollT;
                     }
 
@@ -399,10 +399,8 @@ namespace CoasterForge {
                 }
             }
 
-            private float ComputeInterpolation(float blend, float t) {
-                float quarticT = t * t * (16f + t * (-32f + t * 16f));
-                float cubicT = t * t * (3f - 2f * t);
-                return math.lerp(quarticT, cubicT, blend);
+            private float ComputeInterpolation(float t) {
+                return t * t * (3f - 2f * t);
             }
         }
 
@@ -701,29 +699,23 @@ namespace CoasterForge {
             public float Duration;
 
             [Header("Normal Force")]
-            public float NormalBlend;
             public float StartNormalForce;
             public float NormalForceAmplitude;
 
             [Header("Lateral Force")]
-            public float LateralBlend;
             public float StartLateralForce;
             public float LateralForceAmplitude;
 
             [Header("Roll Speed")]
-            public float RollSpeedBlend;
             public float StartRollSpeed;
             public float RollSpeedAmplitude;
 
             public static Function Default => new() {
                 Duration = 0.1f,
-                NormalBlend = 0.5f,
                 StartNormalForce = 1f,
                 NormalForceAmplitude = 0f,
-                LateralBlend = 0.5f,
                 StartLateralForce = 0f,
                 LateralForceAmplitude = 0f,
-                RollSpeedBlend = 0.5f,
                 StartRollSpeed = 0f,
                 RollSpeedAmplitude = 0f,
             };
@@ -753,25 +745,22 @@ namespace CoasterForge {
             }
 
             public float GetEndNormalForce() {
-                return StartNormalForce + NormalForceAmplitude * NormalBlend;
+                return StartNormalForce + NormalForceAmplitude;
             }
 
             public float GetEndLateralForce() {
-                return StartLateralForce + LateralForceAmplitude * LateralBlend;
+                return StartLateralForce + LateralForceAmplitude;
             }
 
             public float GetEndRollSpeed() {
-                return StartRollSpeed + RollSpeedAmplitude * RollSpeedBlend;
+                return StartRollSpeed + RollSpeedAmplitude;
             }
 
             public override string ToString() {
                 StringBuilder sb = new();
                 sb.AppendLine($"Duration: {Duration}");
-                sb.AppendLine($"NormalBlend: {NormalBlend}");
                 sb.AppendLine($"NormalForceAmplitude: {NormalForceAmplitude}");
-                sb.AppendLine($"LateralBlend: {LateralBlend}");
                 sb.AppendLine($"LateralForceAmplitude: {LateralForceAmplitude}");
-                sb.AppendLine($"RollSpeedBlend: {RollSpeedBlend}");
                 sb.AppendLine($"RollSpeedAmplitude: {RollSpeedAmplitude}");
                 return sb.ToString();
             }

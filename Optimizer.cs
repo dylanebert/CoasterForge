@@ -8,35 +8,57 @@ using static CoasterForge.Track;
 
 namespace CoasterForge {
     public class Optimizer : MonoBehaviour {
-        private const int N_GRADIENTS = 5 * 2;
-        private const int N_INITIALIZATIONS = 4;
+        private const int N_GRADIENTS = 3 * 2;
+        private const int N_INITIALIZATIONS = 1;
         private const int N_TRACKS = N_GRADIENTS * N_INITIALIZATIONS;
 
         private const float LEARNING_RATE = 0.1f; // Initial learning rate
-        private const float MIN_LEARNING_RATE = 1e-6f; // Minimum learning rate
-        private const float DECAY_THRESHOLD = 0.01f; // Minimum loss decrease to apply decay
-        private const float FADE_THRESHOLD = 0.01f; // Learning rate to start optimizing fade
+        private const float MIN_LEARNING_RATE = 1e-4f; // Minimum learning rate
         private const float EPSILON = 0.001f; // Gradient step size
         private const float BETA1 = 0.9f; // Exponential decay rate for first moment
         private const float BETA2 = 0.999f; // Exponential decay rate for second moment
         private const float EPSILON_ADAM = 1e-8f; // Small constant to prevent division by zero
-        private const float LEARNING_RATE_DECAY = 0.99f; // Decay rate for learning rate
+        private const float LEARNING_RATE_DECAY = 0.995f; // Decay rate for learning rate
+        private const float DECAY_THRESHOLD = 0.001f; // Minimum loss increase to apply decay
 
         public Track Track;
         public ControlPoint ControlPoint;
 
-        private Track[] _tracks = new Track[N_TRACKS];
-        private Function[] _functions = new Function[N_INITIALIZATIONS];
-        private Gradient[] _gradients = new Gradient[N_INITIALIZATIONS];
-        private float[] _losses = new float[N_INITIALIZATIONS];
+        private Track[] _tracks;
+        private Function[] _functions;
+        private Gradient[] _gradients;
+        private float[] _losses;
 
         private float _learningRate;
-        private float _bestLoss;
+        private float _loss;
         private float _mt, _vt;
         private float _mnF, _vnF;
         private float _mrS, _vrS;
 
         private int _t;
+
+        private void Start() {
+            _tracks = new Track[N_TRACKS];
+            _functions = new Function[N_INITIALIZATIONS];
+            _gradients = new Gradient[N_INITIALIZATIONS];
+            _losses = new float[N_INITIALIZATIONS];
+
+            for (int i = 0; i < N_TRACKS; i++) {
+                int initialization = i / N_GRADIENTS;
+                int gradient = i % N_GRADIENTS;
+                _tracks[i] = Instantiate(Track, transform);
+                _tracks[i].name = $"Initialization {initialization} Gradient {gradient}";
+                _tracks[i].Autobuild = false;
+            }
+
+            Initialize();
+        }
+
+        private void OnDestroy() {
+            foreach (var track in _tracks) {
+                Destroy(track.gameObject);
+            }
+        }
 
         public void AddControlPoint() {
             var newFunction = Function.Default;
@@ -72,33 +94,13 @@ namespace CoasterForge {
             ControlPoint.transform.position = node.Position;
         }
 
-        private void Start() {
-            for (int i = 0; i < N_TRACKS; i++) {
-                int initialization = i / N_GRADIENTS;
-                int gradient = i % N_GRADIENTS;
-                _tracks[i] = Instantiate(Track, transform);
-                _tracks[i].name = $"Initialization {initialization} Gradient {gradient}";
-                _tracks[i].Autobuild = false;
-            }
-
-            Initialize();
-        }
-
-        private void OnDestroy() {
-            foreach (var track in _tracks) {
-                Destroy(track.gameObject);
-            }
-        }
-
         private void Initialize() {
             for (int i = 0; i < N_INITIALIZATIONS; i++) {
                 _functions[i] = Function.Default;
-                _functions[i].NormalBlend = i % 2 == 0 ? 0.01f : 0.99f;
-                _functions[i].RollSpeedBlend = i / 2 % 2 == 0 ? 0.01f : 0.99f;
                 _losses[i] = float.MaxValue;
             }
             _learningRate = LEARNING_RATE;
-            _bestLoss = float.MaxValue;
+            _loss = float.MaxValue;
             _mt = _vt = 0f;
             _mnF = _vnF = 0f;
             _mrS = _vrS = 0f;
@@ -113,6 +115,7 @@ namespace CoasterForge {
 
             ComputeGradients();
 
+            float loss = 0f;
             float bestLoss = float.MaxValue;
             int bestIndex = 0;
 
@@ -129,19 +132,20 @@ namespace CoasterForge {
                 UpdateParameter(ref _functions[i].NormalForceAmplitude, _gradients[i].NormalForceAmplitude, ref _mnF, ref _vnF, _learningRate, ActivationType.Linear);
                 UpdateParameter(ref _functions[i].RollSpeedAmplitude, _gradients[i].RollSpeedAmplitude, ref _mrS, ref _vrS, _learningRate, ActivationType.Linear);
 
-                if (_learningRate < FADE_THRESHOLD) {
-                    UpdateParameter(ref _functions[i].NormalBlend, _gradients[i].NormalForceBlend, ref _mnF, ref _vnF, _learningRate, ActivationType.Sigmoid);
-                    UpdateParameter(ref _functions[i].RollSpeedBlend, _gradients[i].RollSpeedBlend, ref _mrS, ref _vrS, _learningRate, ActivationType.Sigmoid);
-                }
-
                 if (_gradients[i].Loss < bestLoss) {
                     bestLoss = _gradients[i].Loss;
                     bestIndex = i;
                 }
+
+                loss += _gradients[i].Loss;
             }
 
-            bool shouldDecay = bestLoss > _bestLoss - DECAY_THRESHOLD;
-            _bestLoss = math.min(_bestLoss, bestLoss);
+            loss /= N_INITIALIZATIONS;
+
+            bool shouldDecay = loss > _loss + DECAY_THRESHOLD;
+            _loss = math.min(_loss, loss);
+
+            Debug.Log(_learningRate);
 
             if (shouldDecay) {
                 _learningRate *= LEARNING_RATE_DECAY;
@@ -202,29 +206,12 @@ namespace CoasterForge {
                 var rollSpeedAmplitudeMinusFunction = originalFunction;
                 rollSpeedAmplitudeMinusFunction.RollSpeedAmplitude -= EPSILON;
                 _tracks[i * N_GRADIENTS + 5].Functions[^1] = rollSpeedAmplitudeMinusFunction;
-
-                // Normal Force Blend
-                var normalForceBlendPlusFunction = originalFunction;
-                normalForceBlendPlusFunction.NormalBlend += EPSILON;
-                _tracks[i * N_GRADIENTS + 6].Functions[^1] = normalForceBlendPlusFunction;
-
-                var normalForceBlendMinusFunction = originalFunction;
-                normalForceBlendMinusFunction.NormalBlend -= EPSILON;
-                _tracks[i * N_GRADIENTS + 7].Functions[^1] = normalForceBlendMinusFunction;
-
-                // Roll Speed Blend
-                var rollSpeedBlendPlusFunction = originalFunction;
-                rollSpeedBlendPlusFunction.RollSpeedBlend += EPSILON;
-                _tracks[i * N_GRADIENTS + 8].Functions[^1] = rollSpeedBlendPlusFunction;
-
-                var rollSpeedBlendMinusFunction = originalFunction;
-                rollSpeedBlendMinusFunction.RollSpeedBlend -= EPSILON;
-                _tracks[i * N_GRADIENTS + 9].Functions[^1] = rollSpeedBlendMinusFunction;
             }
 
             Simulate().Complete();
 
             for (int i = 0; i < N_INITIALIZATIONS; i++) {
+                Debug.Log($"Initialization {i}");
                 float durationLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 0], true);
                 float durationLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 1]);
 
@@ -234,30 +221,18 @@ namespace CoasterForge {
                 float rollSpeedAmplitudeLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 4]);
                 float rollSpeedAmplitudeLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 5]);
 
-                float normalForceBlendLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 6]);
-                float normalForceBlendLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 7]);
-
-                float rollSpeedBlendLossPlus = ComputeLoss(_tracks[i * N_GRADIENTS + 8]);
-                float rollSpeedBlendLossMinus = ComputeLoss(_tracks[i * N_GRADIENTS + 9]);
-
-                float minLoss = math.min(math.min(math.min(math.min(math.min(math.min(math.min(math.min(math.min(
+                float minLoss = math.min(math.min(math.min(math.min(math.min(
                     durationLossPlus, durationLossMinus),
                     normalForceAmplitudeLossPlus),
                     normalForceAmplitudeLossMinus),
                     rollSpeedAmplitudeLossPlus),
-                    rollSpeedAmplitudeLossMinus),
-                    normalForceBlendLossPlus),
-                    normalForceBlendLossMinus),
-                    rollSpeedBlendLossPlus),
-                    rollSpeedBlendLossMinus);
+                    rollSpeedAmplitudeLossMinus);
 
                 _gradients[i] = new Gradient {
                     Loss = minLoss,
                     Duration = (durationLossPlus - durationLossMinus) / (2 * EPSILON),
                     NormalForceAmplitude = (normalForceAmplitudeLossPlus - normalForceAmplitudeLossMinus) / (2 * EPSILON),
                     RollSpeedAmplitude = (rollSpeedAmplitudeLossPlus - rollSpeedAmplitudeLossMinus) / (2 * EPSILON),
-                    NormalForceBlend = (normalForceBlendLossPlus - normalForceBlendLossMinus) / (2 * EPSILON) * 0.1f,
-                    RollSpeedBlend = (rollSpeedBlendLossPlus - rollSpeedBlendLossMinus) / (2 * EPSILON) * 0.1f,
                 };
             }
         }
@@ -290,6 +265,10 @@ namespace CoasterForge {
             var lastFunction = track.Functions[^1];
             var lastNode = nodes[nodeCount - 1];
 
+            int functionNodeCount = (int)(lastFunction.Duration * Constants.HZ);
+            int startIndex = math.max(0, nodeCount - functionNodeCount);
+            var firstNode = nodes[startIndex];
+
             float totalLoss = 0f;
 
             // Constraint-based loss
@@ -316,20 +295,19 @@ namespace CoasterForge {
                 + targetYawLoss;
 
             // Heuristic loss
-            float durationLoss, normalForceLoss, rollSpeedLoss, extremeNormalForceLoss, extremeRollSpeedLoss;
+            float durationLoss, normalForceLoss, rollSpeedLoss;
+            float extremeNormalForceLoss, extremeRollSpeedLoss;
             durationLoss = ControlPoint.Mode switch {
                 ConstraintMode.Duration => 0f,
                 _ => lastFunction.Duration,
             };
 
-            float blendScaling = math.lerp(0.25f, 1f, lastFunction.NormalBlend);
-
             float dv = lastFunction.NormalForceAmplitude;
-            float dt = lastFunction.Duration * blendScaling;
+            float dt = lastFunction.Duration;
             normalForceLoss = math.abs(dv / dt);
 
             dv = lastFunction.RollSpeedAmplitude;
-            dt = lastFunction.Duration * blendScaling;
+            dt = lastFunction.Duration;
             rollSpeedLoss = math.abs(dv / dt);
 
             (float min, float max) = (-1f, 6f);
@@ -358,7 +336,7 @@ namespace CoasterForge {
                 extremeRollSpeedLoss = 0f;
             }
 
-            durationLoss *= 0.001f;
+            durationLoss *= 0.1f;
             normalForceLoss *= 0.1f;
             rollSpeedLoss *= 0.1f;
             extremeNormalForceLoss *= 10f;
@@ -414,8 +392,6 @@ namespace CoasterForge {
             public float Duration;
             public float NormalForceAmplitude;
             public float RollSpeedAmplitude;
-            public float NormalForceBlend;
-            public float RollSpeedBlend;
 
             public override string ToString() {
                 StringBuilder sb = new();
@@ -423,8 +399,6 @@ namespace CoasterForge {
                 sb.AppendLine($"Duration: {Duration}");
                 sb.AppendLine($"NormalForceAmplitude: {NormalForceAmplitude}");
                 sb.AppendLine($"RollSpeedAmplitude: {RollSpeedAmplitude}");
-                sb.AppendLine($"NormalForceBlend: {NormalForceBlend}");
-                sb.AppendLine($"RollSpeedBlend: {RollSpeedBlend}");
                 return sb.ToString();
             }
         }
