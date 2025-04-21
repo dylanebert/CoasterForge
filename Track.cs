@@ -362,7 +362,7 @@ namespace CoasterForge {
                     Keyframe keyframe = Curve[i];
                     node.NormalForce = keyframe.NormalForce;
                     node.LateralForce = keyframe.LateralForce;
-                    node.RollSpeed = keyframe.RollSpeed * 100f;
+                    node.RollSpeed = keyframe.RollSpeed;
 
                     // Compute force vectors needed to achieve target forces
                     float3 forceVec = -node.NormalForce * prev.Normal - node.LateralForce * prev.Lateral + math.down();
