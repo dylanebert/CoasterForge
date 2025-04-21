@@ -23,16 +23,7 @@ namespace CoasterForge {
         private NativeArray<Node> _nodesRO;
         private NativeArray<Keyframe> _curve;
 
-        private NativeReference<int> _startRW;
-        private NativeReference<int> _endRW;
-        private NativeReference<int> _kRW;
-        private NativeReference<float> _hzRW;
-        private NativeReference<int> _refinementRW;
-
         private NativeReference<int> _nodeCountRW;
-        private NativeReference<int> _solvedKRW;
-
-        private NativeReference<int> _solvedKRO;
         private NativeReference<int> _nodeCountRO;
 
         private JobHandle _jobHandle;
@@ -42,7 +33,6 @@ namespace CoasterForge {
 
         public NativeArray<Node> Nodes => _nodesRO;
         public int NodeCount => _nodeCountRO.Value;
-        public int SolvedK => _solvedKRO.Value;
 
         private void Initialize() {
             if (_initialized) {
@@ -74,16 +64,7 @@ namespace CoasterForge {
         }
 
         private void Start() {
-            _startRW = new NativeReference<int>(Allocator.Persistent);
-            _endRW = new NativeReference<int>(Allocator.Persistent);
-            _kRW = new NativeReference<int>(Allocator.Persistent);
-            _hzRW = new NativeReference<float>(Allocator.Persistent);
-            _refinementRW = new NativeReference<int>(Allocator.Persistent);
-
-            _solvedKRW = new NativeReference<int>(Allocator.Persistent) { Value = -1 };
             _nodeCountRW = new NativeReference<int>(Allocator.Persistent);
-
-            _solvedKRO = new NativeReference<int>(Allocator.Persistent);
             _nodeCountRO = new NativeReference<int>(Allocator.Persistent);
 
             if (Functions.Count == 0) {
@@ -100,16 +81,7 @@ namespace CoasterForge {
             _jobHandle.Complete();
             Dispose();
 
-            _startRW.Dispose();
-            _endRW.Dispose();
-            _kRW.Dispose();
-            _hzRW.Dispose();
-            _refinementRW.Dispose();
-
-            _solvedKRW.Dispose();
             _nodeCountRW.Dispose();
-
-            _solvedKRO.Dispose();
             _nodeCountRO.Dispose();
         }
 
@@ -174,7 +146,6 @@ namespace CoasterForge {
                     NodesRW = _nodesRW,
                 }.Schedule(_nodeCountRW.Value, _nodeCountRW.Value / 16).Complete();
                 _nodeCountRO.Value = _nodeCountRW.Value;
-                _solvedKRO.Value = _solvedKRW.Value;
             }
 
             float duration = GetDuration();
@@ -202,37 +173,12 @@ namespace CoasterForge {
                 }.Schedule(_jobHandle);
                 _jobHandle = functions.Dispose(_jobHandle);
 
-                _refinementRW.Value = 0;
-                _solvedKRW.Value = -1;
                 _dirty = false;
-            }
-
-            if (force) {
-                _startRW.Value = 0;
-                _endRW.Value = _nodeCountRW.Value;
-                _kRW.Value = 1;
-                _hzRW.Value = HZ;
-                _solvedKRW.Value = 1;
-            }
-            else {
-                _jobHandle = new ComputeChunkJob {
-                    Refinement = _refinementRW,
-                    SolvedK = _solvedKRW,
-                    Start = _startRW,
-                    End = _endRW,
-                    K = _kRW,
-                    HZ = _hzRW,
-                    NodeCount = _nodeCountRW,
-                }.Schedule(_jobHandle);
             }
 
             _jobHandle = new BuildJob {
                 Nodes = _nodesRW,
                 Curve = _curve,
-                Start = _startRW,
-                End = _endRW,
-                K = _kRW,
-                HZ = _hzRW,
                 FixedVelocity = FixedVelocity,
             }.Schedule(_jobHandle);
 
@@ -240,10 +186,8 @@ namespace CoasterForge {
                 _jobHandle = new CopyJob {
                     NodesRO = _nodesRO,
                     NodeCountRO = _nodeCountRO,
-                    SolvedKRO = _solvedKRO,
                     NodesRW = _nodesRW,
                     NodeCountRW = _nodeCountRW,
-                    SolvedKRW = _solvedKRW,
                 }.Schedule(_jobHandle);
             }
 
@@ -313,17 +257,11 @@ namespace CoasterForge {
             [WriteOnly]
             public NativeReference<int> NodeCountRO;
 
-            [WriteOnly]
-            public NativeReference<int> SolvedKRO;
-
             [ReadOnly]
             public NativeArray<Node> NodesRW;
 
             [ReadOnly]
             public NativeReference<int> NodeCountRW;
-
-            [ReadOnly]
-            public NativeReference<int> SolvedKRW;
 
             public void Execute() {
                 int nodeCount = NodeCountRW.Value;
@@ -331,7 +269,6 @@ namespace CoasterForge {
                     NodesRO[i] = NodesRW[i];
                 }
                 NodeCountRO.Value = NodeCountRW.Value;
-                SolvedKRO.Value = SolvedKRW.Value;
             }
         }
 
@@ -405,76 +342,6 @@ namespace CoasterForge {
         }
 
         [BurstCompile]
-        private struct ComputeChunkJob : IJob {
-            public NativeReference<int> Refinement;
-            public NativeReference<int> SolvedK;
-
-            [WriteOnly]
-            public NativeReference<int> Start;
-
-            [WriteOnly]
-            public NativeReference<int> End;
-
-            [WriteOnly]
-            public NativeReference<int> K;
-
-            [WriteOnly]
-            public NativeReference<float> HZ;
-
-            [ReadOnly]
-            public NativeReference<int> NodeCount;
-
-            public void Execute() {
-                const int fineNodesPerFrame = 10000;
-
-                int nodeCount = NodeCount.Value;
-                int refinement = Refinement.Value;
-                int maxK = 1;
-                int levels = (int)math.floor(math.log2(nodeCount / (float)fineNodesPerFrame));
-                bool solved = false;
-                if (levels > 0) {
-                    maxK = 1 << levels;
-                    int min = (1 << levels) - 1;
-                    int max = (1 << (levels + 1)) - 1;
-                    solved = refinement >= max;
-                    if (refinement > min) {
-                        refinement = min + (refinement - min) % (max - min);
-                    }
-                }
-                else {
-                    solved = refinement >= 1;
-                }
-
-                int groupIndex = 0;
-                int remaining = refinement;
-                int groupLevels = 1;
-                while (remaining >= groupLevels) {
-                    remaining -= groupLevels;
-                    groupIndex++;
-                    groupLevels *= 2;
-                }
-
-                int k = maxK >> groupIndex;
-                k = math.max(k, 1);
-                int solvedK = solved ? 1 : k * 2;
-
-                SolvedK.Value = SolvedK.Value < 0 ? solvedK : math.min(solvedK, SolvedK.Value);
-                Refinement.Value++;
-
-                int nodesPerGroup = (int)math.ceil(nodeCount / (float)groupLevels);
-                int start = nodesPerGroup * remaining;
-                int end = math.min(start + nodesPerGroup, nodeCount);
-                start = math.max(0, start - k);
-                float hz = Constants.HZ / k;
-
-                Start.Value = start;
-                End.Value = end;
-                K.Value = k;
-                HZ.Value = hz;
-            }
-        }
-
-        [BurstCompile]
         private struct BuildJob : IJob {
             public NativeArray<Node> Nodes;
 
@@ -482,30 +349,13 @@ namespace CoasterForge {
             public NativeArray<Keyframe> Curve;
 
             [ReadOnly]
-            public NativeReference<int> Start;
-
-            [ReadOnly]
-            public NativeReference<int> End;
-
-            [ReadOnly]
-            public NativeReference<int> K;
-
-            [ReadOnly]
-            public NativeReference<float> HZ;
-
-            [ReadOnly]
             public bool FixedVelocity;
 
             public void Execute() {
                 UpdateAnchor();
 
-                int start = Start.Value;
-                int end = End.Value;
-                int k = K.Value;
-                float hz = HZ.Value;
-
-                for (int i = start + k; i < end; i += k) {
-                    Node prev = Nodes[i - k];
+                for (int i = 1; i < Nodes.Length; i++) {
+                    Node prev = Nodes[i - 1];
                     Node node = prev;
 
                     // Assign target constraints values
@@ -519,29 +369,29 @@ namespace CoasterForge {
                     float normalForce = -math.dot(forceVec, prev.Normal) * G;
                     float lateralForce = -math.dot(forceVec, prev.Lateral) * G;
 
-                    float estimatedVelocity = math.abs(prev.HeartDistanceFromLast) < EPSILON ? prev.Velocity : prev.HeartDistanceFromLast * hz;
+                    float estimatedVelocity = math.abs(prev.HeartDistanceFromLast) < EPSILON ? prev.Velocity : prev.HeartDistanceFromLast * HZ;
                     if (math.abs(estimatedVelocity) < EPSILON) estimatedVelocity = EPSILON;
                     if (math.abs(prev.Velocity) < EPSILON) prev.Velocity = EPSILON;
 
                     // Compute curvature needed to match force vectors
                     node.Direction = math.mul(
                         math.mul(
-                            quaternion.AxisAngle(prev.Lateral, normalForce / estimatedVelocity / hz),
-                            quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / hz)
+                            quaternion.AxisAngle(prev.Lateral, normalForce / estimatedVelocity / HZ),
+                            quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / HZ)
                         ),
                         prev.Direction
                     );
                     node.Lateral = math.mul(
-                        quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / hz),
+                        quaternion.AxisAngle(prev.Normal, -lateralForce / prev.Velocity / HZ),
                         prev.Lateral
                     );
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
-                    node.Position += node.Direction * (node.Velocity / (2f * hz))
-                        + prev.Direction * (node.Velocity / (2f * hz))
+                    node.Position += node.Direction * (node.Velocity / (2f * HZ))
+                        + prev.Direction * (node.Velocity / (2f * HZ))
                         + (prev.GetHeartPosition(HEART) - node.GetHeartPosition(HEART));
 
                     // Apply roll
-                    float deltaRoll = node.RollSpeed / hz;
+                    float deltaRoll = node.RollSpeed / HZ;
                     quaternion rollQuat = quaternion.AxisAngle(node.Direction, math.radians(-deltaRoll));
                     node.Lateral = math.normalize(math.mul(rollQuat, node.Lateral));
                     node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
@@ -572,7 +422,7 @@ namespace CoasterForge {
                         node.Energy = 0.5f * node.Velocity * node.Velocity + pe;
                     }
                     else {
-                        node.Energy -= node.Velocity * node.Velocity * node.Velocity * RESISTANCE / hz;
+                        node.Energy -= node.Velocity * node.Velocity * node.Velocity * RESISTANCE / HZ;
                         node.Velocity = math.sqrt(2f * math.max(0, node.Energy - pe));
                     }
 
@@ -588,8 +438,8 @@ namespace CoasterForge {
                         float lateralAngle = math.radians(node.PitchFromLast * sinRoll
                             - yawScaleFactor * node.YawFromLast * cosRoll);
                         forceVec = math.up()
-                            + lateralAngle * node.Lateral * node.Velocity * hz / G
-                            + normalAngle * node.Normal * node.HeartDistanceFromLast * hz * hz / G;
+                            + lateralAngle * node.Lateral * node.Velocity * HZ / G
+                            + normalAngle * node.Normal * node.HeartDistanceFromLast * HZ * HZ / G;
                     }
                     node.NormalForce = -math.dot(forceVec, node.Normal);
                     node.LateralForce = -math.dot(forceVec, node.Lateral);
@@ -600,22 +450,6 @@ namespace CoasterForge {
                     else {
                         node.TieDistance += node.DistanceFromLast;
                     }
-
-                    Nodes[i] = node;
-                }
-
-                for (int i = start; i < end; i++) {
-                    if ((i - start) % k == 0) continue;
-
-                    int coarseIndex = i / k * k;
-                    int nextCoarseIndex = math.min(coarseIndex + k, Nodes.Length - 1);
-                    float t = (i - coarseIndex) / (float)k;
-
-                    Node prev = Nodes[coarseIndex];
-                    Node next = Nodes[nextCoarseIndex];
-                    Node node = prev;
-
-                    node.Position = math.lerp(prev.Position, next.Position, t);
 
                     Nodes[i] = node;
                 }
