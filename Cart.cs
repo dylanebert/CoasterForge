@@ -6,7 +6,7 @@ namespace CoasterForge {
         private const float FRONT_WHEEL_OFFSET = 0.75f;
         private const float REAR_WHEEL_OFFSET = -0.75f;
 
-        public Track Track;
+        public Section Track;
 
         private float _indexFloat = 1f;
 

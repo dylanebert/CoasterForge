@@ -1,13 +1,13 @@
 using Unity.Mathematics;
 using UnityEngine;
 using static CoasterForge.Constants;
-using Node = CoasterForge.Track.Node;
+using Node = CoasterForge.Section.Node;
 using System.Runtime.InteropServices;
 using UnityEngine.Rendering;
 
 namespace CoasterForge {
     public class TrackMesh : MonoBehaviour {
-        public Track Track;
+        public Section Track;
         public ComputeShader TrackMeshCompute;
         public Material DuplicationMaterial;
         public Material ExtrusionMaterial;
@@ -125,7 +125,7 @@ namespace CoasterForge {
                 );
             }
 
-            _nextBuffers.NodesBuffer.SetData(nodes, 0, 0, nodeCount);
+            _nextBuffers.NodesBuffer.SetData(nodes.AsArray(), 0, 0, nodeCount);
 
             int kernel = TrackMeshCompute.FindKernel("CSMain");
 
