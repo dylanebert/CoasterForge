@@ -138,6 +138,10 @@ namespace CoasterForge {
         }
 
         public JobHandle Build(bool force = false) {
+            if (!force && !_jobHandle.IsCompleted) {
+                return default;
+            }
+
             _jobHandle.Complete();
 
             if (!force) {
