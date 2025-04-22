@@ -143,6 +143,7 @@ namespace CoasterForge {
 
             TrackMeshCompute.SetFloat("_Heart", HEART);
             TrackMeshCompute.SetFloat("_NodeCount", nodeCount);
+            TrackMeshCompute.SetFloat("_TieSpacing", TIE_SPACING);
 
             TrackMeshCompute.GetKernelThreadGroupSizes(kernel, out uint threadGroupSize, out _, out _);
             int threadGroups = (int)math.ceil(nodeCount / (float)threadGroupSize);

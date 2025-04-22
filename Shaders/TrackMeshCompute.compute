@@ -34,6 +34,7 @@ RWStructuredBuffer<uint> _ExtrusionIndices;
 
 float _Heart;
 float _NodeCount;
+float _TieSpacing;
 
 float3 GetHeartPosition(Node node) {
     return node.Position + _Heart * node.Normal;
@@ -110,7 +111,7 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
     float4x4 trs = TRS(position, rotation);
 
     _Matrices[idx] = trs;
-    _DuplicationNodes[idx] = step(0.7, node.TieDistance);
+    _DuplicationNodes[idx] = step(_TieSpacing, node.TieDistance);
 
     uint N = _CrossSectionVertices.Length / 2;
     uint M = _CrossSectionTriangulation.Length;

@@ -3,4 +3,9 @@ namespace CoasterForge {
         Time,
         Distance,
     }
+
+    public enum SectionType {
+        Geometric,
+        Force,
+    }
 }

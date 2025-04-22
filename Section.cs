@@ -14,6 +14,7 @@ namespace CoasterForge {
         public List<Keyframe> LateralForceKeyframes;
         public float Duration;
         public DurationType DurationType;
+        public SectionType SectionType;
         public bool FixedVelocity;
         public bool Autobuild;
 
@@ -132,6 +133,7 @@ namespace CoasterForge {
                 LateralForceKeyframes = lateralForceKeyframes,
                 Duration = Duration,
                 DurationType = DurationType,
+                SectionType = SectionType,
                 FixedVelocity = FixedVelocity,
             }.Schedule(_jobHandle);
 
@@ -153,7 +155,7 @@ namespace CoasterForge {
             if (!_nodesRO.IsCreated) return;
             int nodeCount = _nodesRO.Length;
             for (int i = 0; i < nodeCount; i++) {
-                if (i % 100 != 0) continue;
+                if (i % 10 != 0) continue;
                 var node = _nodesRO[i];
                 float3 position = node.Position;
                 float3 direction = node.Direction;
@@ -193,6 +195,9 @@ namespace CoasterForge {
             public DurationType DurationType;
 
             [ReadOnly]
+            public SectionType SectionType;
+
+            [ReadOnly]
             public bool FixedVelocity;
 
             public void Execute() {
@@ -203,17 +208,152 @@ namespace CoasterForge {
                 anchor.Energy = 0.5f * anchor.Velocity * anchor.Velocity + G * anchor.GetHeartPosition(CENTER).y;
                 Nodes.Add(anchor);
 
-                switch (DurationType) {
-                    case DurationType.Time:
-                        BuildTimeSection();
+                switch (SectionType) {
+                    case SectionType.Geometric:
+                        switch (DurationType) {
+                            case DurationType.Time:
+                                BuildGeometricTimeSection();
+                                break;
+                            case DurationType.Distance:
+                                BuildGeometricDistanceSection();
+                                break;
+                        }
                         break;
-                    case DurationType.Distance:
-                        BuildDistanceSection();
+                    case SectionType.Force:
+                        switch (DurationType) {
+                            case DurationType.Time:
+                                BuildForceTimeSection();
+                                break;
+                            case DurationType.Distance:
+                                BuildForceDistanceSection();
+                                break;
+                        }
                         break;
                 }
             }
 
-            private void BuildTimeSection() {
+            private void BuildGeometricTimeSection() {
+                int nodeCount = (int)(HZ * Duration);
+                for (int i = 1; i < nodeCount; i++) {
+                    Node prev = Nodes[i - 1];
+                    Node node = prev;
+
+                    float t = i / HZ;
+                    float rollSpeedPerMeter = RollSpeedKeyframes.Evaluate(t);
+                    float pitchChangeRatePerMeter = NormalForceKeyframes.Evaluate(t);
+                    float yawChangeRatePerMeter = LateralForceKeyframes.Evaluate(t);
+
+                    float deltaTime = 1f / HZ;
+                    float rollSpeedPerSecond = rollSpeedPerMeter * prev.Velocity;
+                    float pitchChangePerSecond = pitchChangeRatePerMeter * prev.Velocity;
+                    float yawChangePerSecond = yawChangeRatePerMeter * prev.Velocity;
+
+                    float rollSpeed = rollSpeedPerSecond * deltaTime;
+                    float pitchChange = pitchChangePerSecond * deltaTime;
+                    float yawChange = yawChangePerSecond * deltaTime;
+
+                    UpdateGeometricNode(ref node, ref prev, pitchChange, yawChange, rollSpeed);
+                    Nodes.Add(node);
+                }
+            }
+
+            private void BuildGeometricDistanceSection() {
+                while (Nodes[^1].TotalLength < Duration) {
+                    Node prev = Nodes[^1];
+                    Node node = prev;
+
+                    float t = Nodes[^1].TotalLength / Duration;
+                    float rollSpeed = RollSpeedKeyframes.Evaluate(t);
+                    float pitchChangeRate = LateralForceKeyframes.Evaluate(t);
+                    float yawChangeRate = NormalForceKeyframes.Evaluate(t);
+
+                    float deltaLength = 1f / HZ;
+                    float pitchChange = pitchChangeRate * deltaLength;
+                    float yawChange = yawChangeRate * deltaLength;
+
+                    UpdateGeometricNode(ref node, ref prev, pitchChange, yawChange, rollSpeed);
+                    Nodes.Add(node);
+                }
+            }
+
+            private void UpdateGeometricNode(ref Node node, ref Node prev, float pitchChange, float yawChange, float deltaRoll) {
+                node.Direction = math.mul(
+                    quaternion.Euler(math.radians(pitchChange), math.radians(yawChange), 0f),
+                    prev.Direction
+                );
+                node.Lateral = math.mul(
+                    quaternion.Euler(0f, math.radians(yawChange), 0f),
+                    prev.Lateral
+                );
+                node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
+                node.Position += node.Direction * (node.Velocity / (2f * HZ))
+                    + prev.Direction * (node.Velocity / (2f * HZ))
+                    + (prev.GetHeartPosition(HEART) - node.GetHeartPosition(HEART));
+
+                quaternion rollQuat = quaternion.AxisAngle(node.Direction, math.radians(-deltaRoll));
+                node.Lateral = math.normalize(math.mul(rollQuat, node.Lateral));
+                node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
+                node.Roll = math.degrees(math.atan2(node.Lateral.y, -node.Normal.y));
+                node.Roll = (node.Roll + 540) % 360 - 180;
+
+                // Compute node metrics
+                node.DistanceFromLast = math.distance(node.GetHeartPosition(HEART), prev.GetHeartPosition(HEART));
+                node.TotalLength += node.DistanceFromLast;
+                node.HeartDistanceFromLast = math.distance(node.Position, prev.Position);
+                node.TotalHeartLength += node.HeartDistanceFromLast;
+
+                // Update energy and velocity
+                float pe = G * (node.GetHeartPosition(CENTER).y + node.TotalLength * FRICTION);
+                if (FixedVelocity) {
+                    node.Velocity = 10f;
+                    node.Energy = 0.5f * node.Velocity * node.Velocity + pe;
+                }
+                else {
+                    node.Energy -= node.Velocity * node.Velocity * node.Velocity * RESISTANCE / HZ;
+                    node.Velocity = math.sqrt(2f * math.max(0, node.Energy - pe));
+                }
+
+                // Compute orientation changes
+                float3 diff = node.Direction - prev.Direction;
+                if (math.length(diff) < EPSILON) {
+                    node.PitchFromLast = 0f;
+                    node.YawFromLast = 0f;
+                }
+                else {
+                    node.PitchFromLast = (node.GetPitch() - prev.GetPitch() + 540) % 360 - 180;
+                    node.YawFromLast = (node.GetYaw() - prev.GetYaw() + 540) % 360 - 180;
+                }
+                float yawScaleFactor = math.cos(math.abs(math.radians(node.GetPitch())));
+                node.AngleFromLast = math.sqrt(yawScaleFactor * yawScaleFactor * node.YawFromLast * node.YawFromLast + node.PitchFromLast * node.PitchFromLast);
+
+                // Compute actual forces
+                float3 forceVec;
+                if (math.abs(node.AngleFromLast) < EPSILON) {
+                    forceVec = math.up();
+                }
+                else {
+                    float cosRoll = math.cos(math.radians(node.Roll));
+                    float sinRoll = math.sin(math.radians(node.Roll));
+                    float normalAngle = math.radians(-node.PitchFromLast * cosRoll
+                        - yawScaleFactor * node.YawFromLast * sinRoll);
+                    float lateralAngle = math.radians(node.PitchFromLast * sinRoll
+                        - yawScaleFactor * node.YawFromLast * cosRoll);
+                    forceVec = math.up()
+                        + lateralAngle * node.Lateral * node.Velocity * HZ / G
+                        + normalAngle * node.Normal * node.HeartDistanceFromLast * HZ * HZ / G;
+                }
+                node.NormalForce = -math.dot(forceVec, node.Normal);
+                node.LateralForce = -math.dot(forceVec, node.Lateral);
+
+                if (node.TieDistance > TIE_SPACING) {
+                    node.TieDistance = 0f;
+                }
+                else {
+                    node.TieDistance += node.DistanceFromLast;
+                }
+            }
+
+            private void BuildForceTimeSection() {
                 int nodeCount = (int)(HZ * Duration);
                 for (int i = 1; i < nodeCount; i++) {
                     Node prev = Nodes[i - 1];
@@ -224,12 +364,12 @@ namespace CoasterForge {
                     node.NormalForce = NormalForceKeyframes.Evaluate(i / HZ);
                     node.LateralForce = LateralForceKeyframes.Evaluate(i / HZ);
 
-                    UpdateNode(ref node, ref prev);
+                    UpdateForceNode(ref node, ref prev);
                     Nodes.Add(node);
                 }
             }
 
-            private void BuildDistanceSection() {
+            private void BuildForceDistanceSection() {
                 while (Nodes[^1].TotalLength < Duration) {
                     Node prev = Nodes[^1];
                     Node node = prev;
@@ -240,12 +380,12 @@ namespace CoasterForge {
                     node.NormalForce = NormalForceKeyframes.Evaluate(estimatedDistance);
                     node.LateralForce = LateralForceKeyframes.Evaluate(estimatedDistance);
 
-                    UpdateNode(ref node, ref prev);
+                    UpdateForceNode(ref node, ref prev);
                     Nodes.Add(node);
                 }
             }
 
-            private void UpdateNode(ref Node node, ref Node prev) {
+            private void UpdateForceNode(ref Node node, ref Node prev) {
                 // Compute force vectors needed to achieve target forces
                 float3 forceVec = -node.NormalForce * prev.Normal - node.LateralForce * prev.Lateral + math.down();
                 float normalForce = -math.dot(forceVec, prev.Normal) * G;
@@ -273,7 +413,13 @@ namespace CoasterForge {
                     + (prev.GetHeartPosition(HEART) - node.GetHeartPosition(HEART));
 
                 // Apply roll
-                float deltaRoll = node.RollSpeed / HZ;
+                float deltaRoll;
+                if (DurationType == DurationType.Time) {
+                    deltaRoll = node.RollSpeed / HZ;
+                }
+                else {
+                    deltaRoll = node.RollSpeed * (prev.Velocity / HZ);
+                }
                 quaternion rollQuat = quaternion.AxisAngle(node.Direction, math.radians(-deltaRoll));
                 node.Lateral = math.normalize(math.mul(rollQuat, node.Lateral));
                 node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
