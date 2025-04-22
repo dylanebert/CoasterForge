@@ -9,5 +9,7 @@ namespace CoasterForge {
         public const float FRICTION = 0.021f; // Friction coefficient
         public const float RESISTANCE = 2e-5f; // Air resistance coefficient
         public const float TIE_SPACING = 0.8f; // Distance between track ties in meters
+        public const float FRONT_WHEEL_OFFSET = 0.75f;
+        public const float REAR_WHEEL_OFFSET = -0.75f;
     }
 }

@@ -8,4 +8,10 @@ namespace CoasterForge {
         Geometric,
         Force,
     }
+
+    public enum InterpolationType {
+        Constant,
+        Linear,
+        Ease,
+    }
 }

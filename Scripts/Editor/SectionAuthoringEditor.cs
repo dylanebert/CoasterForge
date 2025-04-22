@@ -2,8 +2,8 @@ using UnityEditor;
 using UnityEngine;
 
 namespace CoasterForge.Editor {
-    [CustomEditor(typeof(Section))]
-    public class TrackEditor : UnityEditor.Editor {
+    [CustomEditor(typeof(SectionAuthoring))]
+    public class SectionAuthoringEditor : UnityEditor.Editor {
         public override void OnInspectorGUI() {
             DrawPropertiesExcluding(serializedObject,
                 "RollSpeedCurveEditor", "NormalForceCurveEditor", "LateralForceCurveEditor"
@@ -16,8 +16,8 @@ namespace CoasterForge.Editor {
             EditorGUILayout.PropertyField(serializedObject.FindProperty("LateralForceCurveEditor"));
 
             if (GUILayout.Button("Update Editor Curves")) {
-                var track = target as Section;
-                track.UpdateEditorCurves();
+                var authoring = target as SectionAuthoring;
+                authoring.UpdateEditorCurves();
             }
 
             serializedObject.ApplyModifiedProperties();
