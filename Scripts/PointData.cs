@@ -1,9 +1,8 @@
 using System.Text;
-using Unity.Entities;
 using Unity.Mathematics;
 
 namespace CoasterForge {
-    public struct Node : IBufferElementData {
+    public struct PointData {
         public float3 Position;
         public float3 Direction;
         public float3 Lateral;
@@ -23,7 +22,7 @@ namespace CoasterForge {
         public float TotalHeartLength;
         public float TieDistance;
 
-        public static Node Default => new() {
+        public static PointData Default => new() {
             Position = float3.zero,
             Direction = math.back(),
             Lateral = math.right(),

@@ -1,4 +1,5 @@
 using Unity.Burst;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using static CoasterForge.Constants;
@@ -6,19 +7,46 @@ using static CoasterForge.Constants;
 namespace CoasterForge {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial struct BuildGeometricSectionSystem : ISystem {
+        private ComponentLookup<PointPort> _pointPortLookup;
+
+        public void OnCreate(ref SystemState state) {
+            _pointPortLookup = SystemAPI.GetComponentLookup<PointPort>(true);
+        }
+
         public void OnUpdate(ref SystemState state) {
-            new Job().ScheduleParallel();
+            _pointPortLookup.Update(ref state);
+
+            var ecbSingleton = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>();
+            var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
+
+            new Job {
+                Ecb = ecb.AsParallelWriter(),
+                PointPortLookup = _pointPortLookup,
+            }.ScheduleParallel();
         }
 
         [BurstCompile]
         private partial struct Job : IJobEntity {
-            public void Execute(GeometricSectionAspect section) {
-                section.Nodes.Clear();
+            public EntityCommandBuffer.ParallelWriter Ecb;
 
-                Node anchor = Node.Default;
-                anchor.Velocity = 10f;
-                anchor.Energy = 0.5f * anchor.Velocity * anchor.Velocity + G * anchor.GetHeartPosition(CENTER).y;
-                section.Nodes.Add(anchor);
+            [ReadOnly]
+            public ComponentLookup<PointPort> PointPortLookup;
+
+            public void Execute([ChunkIndexInQuery] int chunkIndex, Entity entity, GeometricSectionAspect section) {
+                if (!section.Dirty) return;
+
+                section.Points.Clear();
+
+                PointData anchor = PointData.Default;
+                if (section.InputPorts.Length > 0 && PointPortLookup.TryGetComponent(section.InputPorts[0], out var inputPort)) {
+                    anchor = inputPort.Value;
+                }
+                else {
+                    UnityEngine.Debug.LogWarning("BuildGeometricSectionSystem: No input port found");
+                    anchor.Velocity = 10f;
+                    anchor.Energy = 0.5f * anchor.Velocity * anchor.Velocity + G * anchor.GetHeartPosition(CENTER).y;
+                }
+                section.Points.Add(anchor);
 
                 if (section.DurationType == DurationType.Time) {
                     BuildGeometricTimeSection(section);
@@ -26,13 +54,24 @@ namespace CoasterForge {
                 else {
                     BuildGeometricDistanceSection(section);
                 }
+
+                if (section.OutputPorts.Length > 0 && PointPortLookup.TryGetComponent(section.OutputPorts[0], out var outputPort)) {
+                    outputPort.Value = section.Points[^1].Value;
+                    Ecb.SetComponent(chunkIndex, section.OutputPorts[0], outputPort);
+                    Ecb.SetComponent<Dirty>(chunkIndex, section.OutputPorts[0], true);
+                }
+                else {
+                    UnityEngine.Debug.LogWarning("BuildGeometricSectionSystem: No output port found");
+                }
+
+                section.Dirty = false;
             }
 
             private void BuildGeometricTimeSection(GeometricSectionAspect section) {
-                int nodeCount = (int)(HZ * section.Duration);
-                for (int i = 1; i < nodeCount; i++) {
-                    Node prev = section.Nodes[i - 1];
-                    Node node = prev;
+                int pointCount = (int)(HZ * section.Duration);
+                for (int i = 1; i < pointCount; i++) {
+                    PointData prev = section.Points[i - 1];
+                    PointData curr = prev;
 
                     float t = i / HZ;
                     float rollSpeed = section.RollSpeedKeyframes.Evaluate(t);
@@ -44,17 +83,17 @@ namespace CoasterForge {
                     float deltaPitch = pitchChangeRate * deltaTime;
                     float deltaYaw = yawChangeRate * deltaTime;
 
-                    UpdateGeometricNode(section, ref node, ref prev, deltaRoll, deltaPitch, deltaYaw);
-                    section.Nodes.Add(node);
+                    UpdateGeometricPoint(section, ref curr, ref prev, deltaRoll, deltaPitch, deltaYaw);
+                    section.Points.Add(curr);
                 }
             }
 
             private void BuildGeometricDistanceSection(GeometricSectionAspect section) {
-                while (section.Nodes[^1].TotalLength < section.Duration) {
-                    Node prev = section.Nodes[^1];
-                    Node node = prev;
+                while (section.Points[^1].Value.TotalLength < section.Duration) {
+                    PointData prev = section.Points[^1];
+                    PointData curr = prev;
 
-                    float d = section.Nodes[^1].TotalLength;
+                    float d = section.Points[^1].Value.TotalLength;
                     float rollSpeedPerMeter = section.RollSpeedKeyframes.Evaluate(d);
                     float pitchChangeRatePerMeter = section.PitchSpeedKeyframes.Evaluate(d);
                     float yawChangeRatePerMeter = section.YawSpeedKeyframes.Evaluate(d);
@@ -64,92 +103,92 @@ namespace CoasterForge {
                     float deltaPitch = pitchChangeRatePerMeter * prev.Velocity * deltaTime;
                     float deltaYaw = yawChangeRatePerMeter * prev.Velocity * deltaTime;
 
-                    UpdateGeometricNode(section, ref node, ref prev, deltaRoll, deltaPitch, deltaYaw);
-                    section.Nodes.Add(node);
+                    UpdateGeometricPoint(section, ref curr, ref prev, deltaRoll, deltaPitch, deltaYaw);
+                    section.Points.Add(curr);
                 }
             }
 
-            private void UpdateGeometricNode(
+            private void UpdateGeometricPoint(
                 GeometricSectionAspect section,
-                ref Node node,
-                ref Node prev,
+                ref PointData curr,
+                ref PointData prev,
                 float deltaRoll,
                 float deltaPitch,
                 float deltaYaw
             ) {
-                node.Direction = math.mul(
+                curr.Direction = math.mul(
                     quaternion.Euler(math.radians(deltaPitch), math.radians(deltaYaw), 0f),
                     prev.Direction
                 );
-                node.Lateral = math.mul(
+                curr.Lateral = math.mul(
                     quaternion.Euler(0f, math.radians(deltaYaw), 0f),
                     prev.Lateral
                 );
-                node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
-                node.Position += node.Direction * (node.Velocity / (2f * HZ))
-                    + prev.Direction * (node.Velocity / (2f * HZ))
-                    + (prev.GetHeartPosition(HEART) - node.GetHeartPosition(HEART));
+                curr.Normal = math.normalize(math.cross(curr.Direction, curr.Lateral));
+                curr.Position += curr.Direction * (curr.Velocity / (2f * HZ))
+                    + prev.Direction * (curr.Velocity / (2f * HZ))
+                    + (prev.GetHeartPosition(HEART) - curr.GetHeartPosition(HEART));
 
-                quaternion rollQuat = quaternion.AxisAngle(node.Direction, math.radians(-deltaRoll));
-                node.Lateral = math.normalize(math.mul(rollQuat, node.Lateral));
-                node.Normal = math.normalize(math.cross(node.Direction, node.Lateral));
-                node.Roll = math.degrees(math.atan2(node.Lateral.y, -node.Normal.y));
-                node.Roll = (node.Roll + 540) % 360 - 180;
+                quaternion rollQuat = quaternion.AxisAngle(curr.Direction, math.radians(-deltaRoll));
+                curr.Lateral = math.normalize(math.mul(rollQuat, curr.Lateral));
+                curr.Normal = math.normalize(math.cross(curr.Direction, curr.Lateral));
+                curr.Roll = math.degrees(math.atan2(curr.Lateral.y, -curr.Normal.y));
+                curr.Roll = (curr.Roll + 540) % 360 - 180;
 
-                // Compute node metrics
-                node.DistanceFromLast = math.distance(node.GetHeartPosition(HEART), prev.GetHeartPosition(HEART));
-                node.TotalLength += node.DistanceFromLast;
-                node.HeartDistanceFromLast = math.distance(node.Position, prev.Position);
-                node.TotalHeartLength += node.HeartDistanceFromLast;
+                // Compute point metrics
+                curr.DistanceFromLast = math.distance(curr.GetHeartPosition(HEART), prev.GetHeartPosition(HEART));
+                curr.TotalLength += curr.DistanceFromLast;
+                curr.HeartDistanceFromLast = math.distance(curr.Position, prev.Position);
+                curr.TotalHeartLength += curr.HeartDistanceFromLast;
 
                 // Update energy and velocity
-                float pe = G * (node.GetHeartPosition(CENTER).y + node.TotalLength * FRICTION);
+                float pe = G * (curr.GetHeartPosition(CENTER).y + curr.TotalLength * FRICTION);
                 if (section.FixedVelocity) {
-                    node.Velocity = 10f;
-                    node.Energy = 0.5f * node.Velocity * node.Velocity + pe;
+                    curr.Velocity = 10f;
+                    curr.Energy = 0.5f * curr.Velocity * curr.Velocity + pe;
                 }
                 else {
-                    node.Energy -= node.Velocity * node.Velocity * node.Velocity * RESISTANCE / HZ;
-                    node.Velocity = math.sqrt(2f * math.max(0, node.Energy - pe));
+                    curr.Energy -= curr.Velocity * curr.Velocity * curr.Velocity * RESISTANCE / HZ;
+                    curr.Velocity = math.sqrt(2f * math.max(0, curr.Energy - pe));
                 }
 
                 // Compute orientation changes
-                float3 diff = node.Direction - prev.Direction;
+                float3 diff = curr.Direction - prev.Direction;
                 if (math.length(diff) < EPSILON) {
-                    node.PitchFromLast = 0f;
-                    node.YawFromLast = 0f;
+                    curr.PitchFromLast = 0f;
+                    curr.YawFromLast = 0f;
                 }
                 else {
-                    node.PitchFromLast = (node.GetPitch() - prev.GetPitch() + 540) % 360 - 180;
-                    node.YawFromLast = (node.GetYaw() - prev.GetYaw() + 540) % 360 - 180;
+                    curr.PitchFromLast = (curr.GetPitch() - prev.GetPitch() + 540) % 360 - 180;
+                    curr.YawFromLast = (curr.GetYaw() - prev.GetYaw() + 540) % 360 - 180;
                 }
-                float yawScaleFactor = math.cos(math.abs(math.radians(node.GetPitch())));
-                node.AngleFromLast = math.sqrt(yawScaleFactor * yawScaleFactor * node.YawFromLast * node.YawFromLast + node.PitchFromLast * node.PitchFromLast);
+                float yawScaleFactor = math.cos(math.abs(math.radians(curr.GetPitch())));
+                curr.AngleFromLast = math.sqrt(yawScaleFactor * yawScaleFactor * curr.YawFromLast * curr.YawFromLast + curr.PitchFromLast * curr.PitchFromLast);
 
                 // Compute actual forces
                 float3 forceVec;
-                if (math.abs(node.AngleFromLast) < EPSILON) {
+                if (math.abs(curr.AngleFromLast) < EPSILON) {
                     forceVec = math.up();
                 }
                 else {
-                    float cosRoll = math.cos(math.radians(node.Roll));
-                    float sinRoll = math.sin(math.radians(node.Roll));
-                    float normalAngle = math.radians(-node.PitchFromLast * cosRoll
-                        - yawScaleFactor * node.YawFromLast * sinRoll);
-                    float lateralAngle = math.radians(node.PitchFromLast * sinRoll
-                        - yawScaleFactor * node.YawFromLast * cosRoll);
+                    float cosRoll = math.cos(math.radians(curr.Roll));
+                    float sinRoll = math.sin(math.radians(curr.Roll));
+                    float normalAngle = math.radians(-curr.PitchFromLast * cosRoll
+                        - yawScaleFactor * curr.YawFromLast * sinRoll);
+                    float lateralAngle = math.radians(curr.PitchFromLast * sinRoll
+                        - yawScaleFactor * curr.YawFromLast * cosRoll);
                     forceVec = math.up()
-                        + lateralAngle * node.Lateral * node.Velocity * HZ / G
-                        + normalAngle * node.Normal * node.HeartDistanceFromLast * HZ * HZ / G;
+                        + lateralAngle * curr.Lateral * curr.Velocity * HZ / G
+                        + normalAngle * curr.Normal * curr.HeartDistanceFromLast * HZ * HZ / G;
                 }
-                node.NormalForce = -math.dot(forceVec, node.Normal);
-                node.LateralForce = -math.dot(forceVec, node.Lateral);
+                curr.NormalForce = -math.dot(forceVec, curr.Normal);
+                curr.LateralForce = -math.dot(forceVec, curr.Lateral);
 
-                if (node.TieDistance > TIE_SPACING) {
-                    node.TieDistance = 0f;
+                if (curr.TieDistance > TIE_SPACING) {
+                    curr.TieDistance = 0f;
                 }
                 else {
-                    node.TieDistance += node.DistanceFromLast;
+                    curr.TieDistance += curr.DistanceFromLast;
                 }
             }
         }

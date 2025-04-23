@@ -28,7 +28,8 @@ namespace CoasterForge {
                     Duration = authoring.Duration,
                     FixedVelocity = authoring.FixedVelocity,
                 });
-                AddBuffer<Node>(entity);
+                AddComponent<Dirty>(entity);
+                AddBuffer<Point>(entity);
                 AddBuffer<RollSpeedKeyframe>(entity);
                 for (int i = 0; i < authoring.RollSpeedKeyframes.Count; i++) {
                     AppendToBuffer(entity, new RollSpeedKeyframe { Value = authoring.RollSpeedKeyframes[i] });
@@ -53,6 +54,23 @@ namespace CoasterForge {
                         AppendToBuffer(entity, new YawSpeedKeyframe { Value = authoring.LateralForceKeyframes[i] });
                     }
                 }
+
+                AddComponent<Node>(entity);
+
+                AddBuffer<InputPortReference>(entity);
+                var inputPort = CreateAdditionalEntity(TransformUsageFlags.None);
+                var inputPoint = PointData.Default;
+                inputPoint.Velocity = 10f;
+                inputPoint.Energy = 0.5f * inputPoint.Velocity * inputPoint.Velocity + G * inputPoint.GetHeartPosition(CENTER).y;
+                AddComponent<PointPort>(inputPort, inputPoint);
+                AddComponent<Dirty>(inputPort);
+                AppendToBuffer<InputPortReference>(entity, inputPort);
+
+                AddBuffer<OutputPortReference>(entity);
+                var outputPort = CreateAdditionalEntity(TransformUsageFlags.None);
+                AddComponent<PointPort>(outputPort, PointData.Default);
+                AddComponent<Dirty>(outputPort);
+                AppendToBuffer<OutputPortReference>(entity, outputPort);
             }
         }
 
@@ -61,9 +79,6 @@ namespace CoasterForge {
             RollSpeedCurveEditor.ClearKeys();
             NormalForceCurveEditor.ClearKeys();
             LateralForceCurveEditor.ClearKeys();
-
-            int nodeCount = (int)(HZ * Duration);
-            var nodeCountRef = new NativeReference<int>(Allocator.TempJob) { Value = nodeCount };
 
             var rollSpeedKeyframes = new NativeArray<Keyframe>(RollSpeedKeyframes.Count, Allocator.TempJob);
             var normalForceKeyframes = new NativeArray<Keyframe>(NormalForceKeyframes.Count, Allocator.TempJob);
@@ -79,7 +94,8 @@ namespace CoasterForge {
                 lateralForceKeyframes[i] = LateralForceKeyframes[i];
             }
 
-            for (int i = 0; i < nodeCount; i++) {
+            int count = (int)(HZ * Duration);
+            for (int i = 0; i < count; i++) {
                 float t = i / HZ;
                 float rollSpeed = rollSpeedKeyframes.Evaluate(t);
                 float normalForce = normalForceKeyframes.Evaluate(t);
@@ -97,7 +113,6 @@ namespace CoasterForge {
             rollSpeedKeyframes.Dispose();
             normalForceKeyframes.Dispose();
             lateralForceKeyframes.Dispose();
-            nodeCountRef.Dispose();
         }
 #endif
     }

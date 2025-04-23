@@ -1,5 +1,5 @@
-StructuredBuffer<uint> _DuplicationNodes;
+StructuredBuffer<uint> _DuplicationPoints;
 
 void Discard_float(float instanceID, out float Out) {
-    Out = _DuplicationNodes[instanceID];
+    Out = _DuplicationPoints[instanceID];
 }

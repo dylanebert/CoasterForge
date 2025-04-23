@@ -13,7 +13,11 @@ namespace CoasterForge {
                     return;
                 }
                 var sectionEntity = GetEntity(authoring.Section.gameObject, TransformUsageFlags.None);
-                AddComponent(entity, new Cart { Section = sectionEntity, Position = 1f });
+                AddComponent(entity, new Cart {
+                    Root = sectionEntity,
+                    Section = sectionEntity,
+                    Position = 1f
+                });
             }
         }
     }

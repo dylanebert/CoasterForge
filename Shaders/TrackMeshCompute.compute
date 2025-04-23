@@ -1,6 +1,6 @@
 #pragma kernel CSMain
 
-struct Node {
+struct Point {
     float3 Position;
     float3 Direction;
     float3 Lateral;
@@ -21,56 +21,56 @@ struct Node {
     float TieDistance;
 };
 
-StructuredBuffer<Node> _Nodes;
+StructuredBuffer<Point> _Points;
 StructuredBuffer<float3> _CrossSectionVertices;
 StructuredBuffer<float3> _CrossSectionNormals;
 StructuredBuffer<uint> _CrossSectionTriangulation;
 
 RWStructuredBuffer<float4x4> _Matrices;
-RWStructuredBuffer<uint> _DuplicationNodes;
+RWStructuredBuffer<uint> _DuplicationPoints;
 RWStructuredBuffer<float3> _ExtrusionVertices;
 RWStructuredBuffer<float3> _ExtrusionNormals;
 RWStructuredBuffer<uint> _ExtrusionIndices;
 
 float _Heart;
-float _NodeCount;
+float _PointCount;
 float _TieSpacing;
 
-float3 GetHeartPosition(Node node) {
-    return node.Position + _Heart * node.Normal;
+float3 GetHeartPosition(Point p) {
+    return p.Position + _Heart * p.Normal;
 }
 
-float3 GetHeartDirection(Node node) {
+float3 GetHeartDirection(Point p) {
     const float HZ = 1000.0;
     float dist;
-    if (node.AngleFromLast < 1e-3) {
-        dist = node.HeartDistanceFromLast;
+    if (p.AngleFromLast < 1e-3) {
+        dist = p.HeartDistanceFromLast;
     }
     else {
-        dist = node.Velocity / HZ;
+        dist = p.Velocity / HZ;
     }
 
-    float rollSpeed = dist > 0.0 ? node.RollSpeed / HZ / dist : 0.0;
+    float rollSpeed = dist > 0.0 ? p.RollSpeed / HZ / dist : 0.0;
     if (isnan(rollSpeed)) rollSpeed = 0.0;
 
-    float3 deviation = node.Lateral * radians(rollSpeed * _Heart);
-    return normalize(node.Direction + deviation);
+    float3 deviation = p.Lateral * radians(rollSpeed * _Heart);
+    return normalize(p.Direction + deviation);
 }
 
-float3 GetHeartLateral(Node node) {
+float3 GetHeartLateral(Point p) {
     const float HZ = 1000.0;
     float dist;
-    if (node.AngleFromLast < 1e-3) {
-        dist = node.HeartDistanceFromLast;
+    if (p.AngleFromLast < 1e-3) {
+        dist = p.HeartDistanceFromLast;
     }
     else {
-        dist = node.Velocity / HZ;
+        dist = p.Velocity / HZ;
     }
-    float rollSpeed = dist > 0.0 ? node.RollSpeed / HZ / dist : 0.0;
+    float rollSpeed = dist > 0.0 ? p.RollSpeed / HZ / dist : 0.0;
     if (isnan(rollSpeed)) rollSpeed = 0.0;
 
-    float3 deviation = -node.Direction * radians(rollSpeed * _Heart);
-    return normalize(node.Lateral + deviation);
+    float3 deviation = -p.Direction * radians(rollSpeed * _Heart);
+    return normalize(p.Lateral + deviation);
 }
 
 float4x4 LookRotationMatrix(float3 forward, float3 up) {
@@ -97,21 +97,21 @@ float4x4 TRS(float3 pos, float4x4 rot) {
 [numthreads(64, 1, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID) {
     uint idx = id.x;
-    uint nodeCount = (uint)_NodeCount;
-    if (idx >= nodeCount) return;
+    uint pointCount = (uint)_PointCount;
+    if (idx >= pointCount) return;
 
-    Node node = _Nodes[idx];
+    Point p = _Points[idx];
 
-    float3 position = GetHeartPosition(node);
+    float3 position = GetHeartPosition(p);
     
-    float3 forward = GetHeartDirection(node);
-    float3 lateral = GetHeartLateral(node);
+    float3 forward = GetHeartDirection(p);
+    float3 lateral = GetHeartLateral(p);
     float3 up = normalize(cross(forward, lateral));
     float4x4 rotation = LookRotationMatrix(forward, -up);
     float4x4 trs = TRS(position, rotation);
 
     _Matrices[idx] = trs;
-    _DuplicationNodes[idx] = step(_TieSpacing, node.TieDistance);
+    _DuplicationPoints[idx] = step(_TieSpacing, p.TieDistance);
 
     uint N = _CrossSectionVertices.Length / 2;
     uint M = _CrossSectionTriangulation.Length;
@@ -130,11 +130,11 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
         _ExtrusionNormals[vertexOffset + i] = normal;
     }
 
-    bool isValidNode = length(node.Direction) > 0.01 &&
-        length(node.Lateral) > 0.01 &&
-        length(node.Normal) > 0.01;
+    bool isValidPoint = length(p.Direction) > 0.01 &&
+        length(p.Lateral) > 0.01 &&
+        length(p.Normal) > 0.01;
 
-    if (idx < nodeCount - 1 && isValidNode) {
+    if (idx < pointCount - 1 && isValidPoint) {
         for (uint j = 0; j < M; j++) {
             uint index = _CrossSectionTriangulation[j];
             _ExtrusionIndices[indexOffset + j] = vertexOffset + index;

@@ -15,9 +15,10 @@ namespace CoasterForge.Editor {
             EditorGUILayout.PropertyField(serializedObject.FindProperty("NormalForceCurveEditor"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("LateralForceCurveEditor"));
 
-            if (GUILayout.Button("Update Editor Curves")) {
+            if (GUILayout.Button("Rebuild")) {
                 var authoring = target as SectionAuthoring;
                 authoring.UpdateEditorCurves();
+                RebuildDebugSystem.Instance?.Rebuild();
             }
 
             serializedObject.ApplyModifiedProperties();

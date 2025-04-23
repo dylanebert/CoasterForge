@@ -112,56 +112,56 @@ namespace CoasterForge {
             public float2 UV;
         }
 
-        public static float GetPitch(this Node node) {
-            float magnitude = math.sqrt(node.Direction.x * node.Direction.x + node.Direction.z * node.Direction.z);
-            return math.degrees(math.atan2(node.Direction.y, magnitude));
+        public static float GetPitch(this PointData p) {
+            float magnitude = math.sqrt(p.Direction.x * p.Direction.x + p.Direction.z * p.Direction.z);
+            return math.degrees(math.atan2(p.Direction.y, magnitude));
         }
 
-        public static float GetYaw(this Node node) {
-            return math.degrees(math.atan2(-node.Direction.x, -node.Direction.z));
+        public static float GetYaw(this PointData p) {
+            return math.degrees(math.atan2(-p.Direction.x, -p.Direction.z));
         }
 
-        public static float3 GetHeartPosition(this Node node, float heart) {
-            return node.Position + node.Normal * heart;
+        public static float3 GetHeartPosition(this PointData p, float heart) {
+            return p.Position + p.Normal * heart;
         }
 
-        public static float3 GetRelativePosition(this Node node, float3 position) {
-            return node.Position
-                - position.y * node.Normal
-                + position.x * node.GetHeartLateral(position.y)
-                + position.z * node.GetHeartDirection(position.y);
+        public static float3 GetRelativePosition(this PointData p, float3 position) {
+            return p.Position
+                - position.y * p.Normal
+                + position.x * p.GetHeartLateral(position.y)
+                + position.z * p.GetHeartDirection(position.y);
         }
 
-        public static float3 GetHeartDirection(this Node node, float heart) {
+        public static float3 GetHeartDirection(this PointData p, float heart) {
             float dist;
-            if (node.AngleFromLast < 1e-3f) {
-                dist = node.HeartDistanceFromLast;
+            if (p.AngleFromLast < 1e-3f) {
+                dist = p.HeartDistanceFromLast;
             }
             else {
-                dist = node.Velocity / HZ;
+                dist = p.Velocity / HZ;
             }
-            float rollSpeed = dist > 0f ? node.RollSpeed / HZ / dist : 0f;
+            float rollSpeed = dist > 0f ? p.RollSpeed / HZ / dist : 0f;
             if (float.IsNaN(rollSpeed)) {
                 rollSpeed = 0f;
             }
-            float3 deviation = node.Lateral * math.radians(rollSpeed * heart);
-            return math.normalize(node.Direction + deviation);
+            float3 deviation = p.Lateral * math.radians(rollSpeed * heart);
+            return math.normalize(p.Direction + deviation);
         }
 
-        public static float3 GetHeartLateral(this Node node, float heart) {
+        public static float3 GetHeartLateral(this PointData p, float heart) {
             float dist;
-            if (node.AngleFromLast < 1e-3f) {
-                dist = node.HeartDistanceFromLast;
+            if (p.AngleFromLast < 1e-3f) {
+                dist = p.HeartDistanceFromLast;
             }
             else {
-                dist = node.Velocity / HZ;
+                dist = p.Velocity / HZ;
             }
-            float rollSpeed = dist > 0f ? node.RollSpeed / HZ / dist : 0f;
+            float rollSpeed = dist > 0f ? p.RollSpeed / HZ / dist : 0f;
             if (float.IsNaN(rollSpeed)) {
                 rollSpeed = 0f;
             }
-            float3 deviation = -node.Direction * math.radians(rollSpeed * heart);
-            return math.normalize(node.Lateral + deviation);
+            float3 deviation = -p.Direction * math.radians(rollSpeed * heart);
+            return math.normalize(p.Lateral + deviation);
         }
 
         public static float Evaluate(this NativeArray<Keyframe> keyframes, float t) {

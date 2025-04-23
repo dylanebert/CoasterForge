@@ -6,18 +6,17 @@ using Unity.Entities;
 
 namespace CoasterForge {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
-    public partial class SectionMeshSystem : SystemBase {
+    public partial class MeshSystem : SystemBase {
         private GraphicsBuffer _crossSectionVerticesBuffer;
         private GraphicsBuffer _crossSectionUVsBuffer;
         private GraphicsBuffer _crossSectionNormalsBuffer;
         private GraphicsBuffer _crossSectionTriangulationBuffer;
 
-        private RenderParams _duplicationParams;
-        private RenderParams _extrusionParams;
+        private Bounds _worldBounds;
 
         protected override void OnCreate() {
             RequireForUpdate<GlobalMeshData>();
-            RequireForUpdate<SectionMeshData>();
+            RequireForUpdate<MeshData>();
         }
 
         protected override void OnStartRunning() {
@@ -40,31 +39,28 @@ namespace CoasterForge {
             normals.Dispose();
             indices.Dispose();
 
-            _duplicationParams = new RenderParams(globalData.DuplicationMat) {
-                worldBounds = new Bounds(Vector3.zero, Vector3.one * 10000f),
-                matProps = new MaterialPropertyBlock()
-            };
+            _worldBounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
+        }
 
-            _extrusionParams = new RenderParams(globalData.ExtrusionMat) {
-                worldBounds = new Bounds(Vector3.zero, Vector3.one * 10000f),
-                matProps = new MaterialPropertyBlock()
-            };
+        protected override void OnStopRunning() {
+            _crossSectionVerticesBuffer?.Dispose();
+            _crossSectionUVsBuffer?.Dispose();
+            _crossSectionNormalsBuffer?.Dispose();
+            _crossSectionTriangulationBuffer?.Dispose();
         }
 
         protected override void OnUpdate() {
             var globalData = SystemAPI.ManagedAPI.GetSingleton<GlobalMeshData>();
 
-            foreach (var data in SystemAPI.Query<SectionMeshData>()) {
+            foreach (var data in SystemAPI.Query<MeshData>()) {
                 if (data.CurrentBuffers == null) {
-                    data.CurrentBuffers = new SectionMeshComputeData();
+                    data.CurrentBuffers = new MeshComputeData();
                     data.CurrentBuffers.Initialize(
                         1,
                         _crossSectionVerticesBuffer,
                         _crossSectionUVsBuffer,
                         _crossSectionTriangulationBuffer,
-                        globalData.DuplicationMesh,
-                        globalData.DuplicationMat,
-                        _extrusionParams.matProps
+                        globalData.DuplicationMesh
                     );
                 }
 
@@ -79,15 +75,25 @@ namespace CoasterForge {
                     data.ComputeFence = null;
                 }
 
+                var duplicationParams = new RenderParams(globalData.DuplicationMat) {
+                    worldBounds = _worldBounds,
+                    matProps = data.CurrentBuffers.DuplicationMatProps
+                };
+
+                var extrusionParams = new RenderParams(globalData.ExtrusionMat) {
+                    worldBounds = _worldBounds,
+                    matProps = data.CurrentBuffers.ExtrusionMatProps
+                };
+
                 Graphics.RenderMeshIndirect(
-                    _duplicationParams,
+                    duplicationParams,
                     globalData.DuplicationMesh,
                     data.CurrentBuffers.DuplicationBuffer,
                     1
                 );
 
                 Graphics.RenderPrimitives(
-                    _extrusionParams,
+                    extrusionParams,
                     MeshTopology.Triangles,
                     data.CurrentBuffers.ExtrusionIndicesBuffer.count,
                     1
@@ -95,25 +101,23 @@ namespace CoasterForge {
             }
         }
 
-        private void Rebuild(in GlobalMeshData globalData, SectionMeshData data) {
-            var nodes = SystemAPI.GetBuffer<Node>(data.Section);
-            if (nodes.Length == 0) return;
+        private void Rebuild(in GlobalMeshData globalData, MeshData data) {
+            var points = SystemAPI.GetBuffer<Point>(data.Entity);
+            if (points.Length == 0) return;
 
-            if (data.NextBuffers == null || data.NextBuffers.NodesBuffer.count != nodes.Length) {
+            if (data.NextBuffers == null || data.NextBuffers.PointsBuffer.count != points.Length) {
                 data.NextBuffers?.Dispose();
-                data.NextBuffers = new SectionMeshComputeData();
+                data.NextBuffers = new MeshComputeData();
                 data.NextBuffers.Initialize(
-                    nodes.Length,
+                    points.Length,
                     _crossSectionVerticesBuffer,
                     _crossSectionUVsBuffer,
                     _crossSectionTriangulationBuffer,
-                    globalData.DuplicationMesh,
-                    globalData.DuplicationMat,
-                    _extrusionParams.matProps
+                    globalData.DuplicationMesh
                 );
             }
 
-            data.NextBuffers.NodesBuffer.SetData(nodes.AsNativeArray(), 0, 0, nodes.Length);
+            data.NextBuffers.PointsBuffer.SetData(points.AsNativeArray(), 0, 0, points.Length);
 
             int kernel = globalData.Compute.FindKernel("CSMain");
 
@@ -122,23 +126,23 @@ namespace CoasterForge {
             globalData.Compute.SetBuffer(kernel, "_CrossSectionNormals", _crossSectionNormalsBuffer);
             globalData.Compute.SetBuffer(kernel, "_CrossSectionTriangulation", _crossSectionTriangulationBuffer);
 
-            globalData.Compute.SetBuffer(kernel, "_Nodes", data.NextBuffers.NodesBuffer);
+            globalData.Compute.SetBuffer(kernel, "_Points", data.NextBuffers.PointsBuffer);
             globalData.Compute.SetBuffer(kernel, "_Matrices", data.NextBuffers.MatricesBuffer);
-            globalData.Compute.SetBuffer(kernel, "_DuplicationNodes", data.NextBuffers.DuplicationNodesBuffer);
+            globalData.Compute.SetBuffer(kernel, "_DuplicationPoints", data.NextBuffers.DuplicationPointsBuffer);
             globalData.Compute.SetBuffer(kernel, "_ExtrusionVertices", data.NextBuffers.ExtrusionVerticesBuffer);
             globalData.Compute.SetBuffer(kernel, "_ExtrusionNormals", data.NextBuffers.ExtrusionNormalsBuffer);
             globalData.Compute.SetBuffer(kernel, "_ExtrusionIndices", data.NextBuffers.ExtrusionIndicesBuffer);
 
             globalData.Compute.SetFloat("_Heart", HEART);
-            globalData.Compute.SetFloat("_NodeCount", nodes.Length);
+            globalData.Compute.SetFloat("_PointCount", points.Length);
             globalData.Compute.SetFloat("_TieSpacing", TIE_SPACING);
 
             globalData.Compute.GetKernelThreadGroupSizes(kernel, out uint threadGroupSize, out _, out _);
-            int threadGroups = (int)math.ceil(nodes.Length / (float)threadGroupSize);
+            int threadGroups = (int)math.ceil(points.Length / (float)threadGroupSize);
 
             globalData.Compute.Dispatch(kernel, threadGroups, 1, 1);
 
-            data.ComputeFence = AsyncGPUReadback.Request(data.NextBuffers.NodesBuffer);
+            data.ComputeFence = AsyncGPUReadback.Request(data.NextBuffers.PointsBuffer);
         }
     }
 }
