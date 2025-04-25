@@ -53,10 +53,14 @@ namespace CoasterForge {
             var globalData = SystemAPI.ManagedAPI.GetSingleton<GlobalMeshData>();
 
             foreach (var data in SystemAPI.Query<MeshData>()) {
+                if (!EntityManager.Exists(data.Entity)) {
+                    continue;
+                }
+
                 if (data.CurrentBuffers == null) {
                     data.CurrentBuffers = new MeshComputeData();
                     data.CurrentBuffers.Initialize(
-                        1,
+                        1,  
                         _crossSectionVerticesBuffer,
                         _crossSectionUVsBuffer,
                         _crossSectionTriangulationBuffer,

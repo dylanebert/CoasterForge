@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace CoasterForge {
+namespace CoasterForge.UI {
     public class ContextMenu : VisualElement {
         private static readonly Color s_BackgroundColor = new(0.3f, 0.3f, 0.3f);
         private static readonly Color s_HoverColor = new(0.35f, 0.35f, 0.35f);

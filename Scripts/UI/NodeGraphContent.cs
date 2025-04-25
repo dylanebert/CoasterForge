@@ -1,6 +1,6 @@
 using UnityEngine.UIElements;
 
-namespace CoasterForge {
+namespace CoasterForge.UI {
     public class NodeGraphContent : VisualElement {
         public NodeGraphContent() {
             style.position = Position.Absolute;

@@ -2,6 +2,7 @@ using System.Text;
 using Unity.Mathematics;
 
 namespace CoasterForge {
+    [System.Serializable]
     public struct PointData {
         public float3 Position;
         public float3 Direction;

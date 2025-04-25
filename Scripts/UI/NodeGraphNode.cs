@@ -1,18 +1,24 @@
 using System.Collections.Generic;
+using Unity.Entities;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace CoasterForge {
+namespace CoasterForge.UI {
     public class NodeGraphNode : VisualElement {
         private static readonly Color s_BackgroundColor = new(0.25f, 0.25f, 0.25f);
         private static readonly Color s_HoverOutlineColor = new(0.2f, 0.5f, 0.9f, 0.5f);
         private static readonly Color s_SelectedOutlineColor = new(0.2f, 0.5f, 0.9f);
 
+        private NodeGraphView _view;
+        private Entity _entity;
         private Vector2 _dragStart;
         private Vector2 _mouseStart;
         private bool _hovered;
         private bool _selected;
         private bool _dragging;
+        private bool _moved;
+
+        public Entity Entity => _entity;
 
         public bool Selected {
             get => _selected;
@@ -27,7 +33,10 @@ namespace CoasterForge {
             }
         }
 
-        public NodeGraphNode() {
+        public NodeGraphNode(NodeGraphView view, Entity entity) {
+            _view = view;
+            _entity = entity;
+
             style.width = 150f;
             style.height = 100f;
             style.position = Position.Absolute;
@@ -46,16 +55,6 @@ namespace CoasterForge {
             style.borderLeftColor = Color.clear;
             style.borderRightColor = Color.clear;
 
-            style.transitionProperty = new List<StylePropertyName> {
-                "border-color"
-            };
-            style.transitionDuration = new List<TimeValue> {
-                new(150, TimeUnit.Millisecond)
-            };
-            style.transitionTimingFunction = new List<EasingFunction> {
-                EasingMode.EaseOutCubic
-            };
-
             RegisterCallback<MouseEnterEvent>(OnMouseEnter);
             RegisterCallback<MouseLeaveEvent>(OnMouseLeave);
             RegisterCallback<MouseDownEvent>(OnMouseDown);
@@ -64,11 +63,13 @@ namespace CoasterForge {
         }
 
         public void Select() {
+            _selected = true;
             SetBorderColor(s_SelectedOutlineColor);
         }
 
         public void Deselect() {
-            if (!_hovered) {
+            _selected = false;
+            if (!_hovered || _view.BoxSelecting) {
                 SetBorderColor(Color.clear);
             }
             else {
@@ -77,6 +78,7 @@ namespace CoasterForge {
         }
 
         private void OnMouseEnter(MouseEnterEvent evt) {
+            if (_view.BoxSelecting) return;
             _hovered = true;
             if (!_selected) {
                 SetBorderColor(s_HoverOutlineColor);
@@ -84,6 +86,7 @@ namespace CoasterForge {
         }
 
         private void OnMouseLeave(MouseLeaveEvent evt) {
+            if (_view.BoxSelecting) return;
             _hovered = false;
             if (!_selected) {
                 SetBorderColor(Color.clear);
@@ -91,12 +94,36 @@ namespace CoasterForge {
         }
 
         private void OnMouseDown(MouseDownEvent evt) {
+            if (evt.button == 0 || evt.button == 1) {
+                if (evt.shiftKey) {
+                    if (_selected) {
+                        _view.DeselectNode(this);
+                    }
+                    else {
+                        _view.SelectNode(this, true);
+                    }
+                }
+                else if (!_selected) {
+                    _view.SelectNode(this, false);
+                }
+            }
+
             if (evt.button == 0) {
                 _dragging = true;
                 _dragStart = new Vector2(style.left.value.value, style.top.value.value);
                 _mouseStart = evt.mousePosition;
+                _moved = false;
+
                 this.CaptureMouse();
                 evt.StopPropagation();
+            }
+
+            if (evt.button == 1) {
+                this.ShowContextMenu(evt.localMousePosition, menu => {
+                    menu.AddItem("Delete", () => {
+                        _view.InvokeRemoveNodeRequest(this);
+                    });
+                });
             }
         }
 
@@ -105,27 +132,42 @@ namespace CoasterForge {
 
             var delta = evt.mousePosition - _mouseStart;
             float zoom = parent?.transform.scale.x ?? 1f;
-            delta /= zoom;
-            style.left = _dragStart.x + delta.x;
-            style.top = _dragStart.y + delta.y;
+            Vector2 desiredPosition = _dragStart + delta / zoom;
+            Vector2 snappedPosition = _view.SnapNodePosition(this, desiredPosition);
+            Vector2 movementDelta = snappedPosition - new Vector2(style.left.value.value, style.top.value.value);
+
+            if (!_moved && movementDelta.sqrMagnitude > 1e-3f) {
+                UndoManager.Record();
+                _moved = true;
+            }
+
+            style.left = snappedPosition.x;
+            style.top = snappedPosition.y;
+
+            _view.MoveSelectedNodes(movementDelta);
+
             evt.StopPropagation();
         }
 
         private void OnMouseUp(MouseUpEvent evt) {
             if (evt.button == 0) {
                 _dragging = false;
+                _view.ClearGuides();
                 this.ReleaseMouse();
                 evt.StopPropagation();
             }
         }
 
         private void SetBorderColor(Color color) {
-            schedule.Execute(() => {
-                style.borderTopColor = color;
-                style.borderBottomColor = color;
-                style.borderLeftColor = color;
-                style.borderRightColor = color;
-            });
+            style.borderTopColor = color;
+            style.borderBottomColor = color;
+            style.borderLeftColor = color;
+            style.borderRightColor = color;
+        }
+
+        public void SetPosition(Vector2 position) {
+            style.left = position.x;
+            style.top = position.y;
         }
     }
 }
