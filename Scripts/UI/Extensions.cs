@@ -9,14 +9,16 @@ namespace CoasterForge.UI {
             Vector2 position,
             Action<ContextMenu> configureMenu
         ) {
+            var root = element.panel.visualTree.Q<TemplateContainer>();
+            Vector2 worldPos = element.LocalToWorld(position);
+            Vector2 rootPos = root.WorldToLocal(worldPos);
+
             var menu = new ContextMenu();
-            menu.style.left = position.x;
-            menu.style.top = position.y;
+            menu.style.left = rootPos.x;
+            menu.style.top = rootPos.y;
 
             configureMenu(menu);
-            element.Add(menu);
-
-            var root = element.panel.visualTree;
+            root.Add(menu);
 
             void OnMouseDown(MouseDownEvent evt) {
                 bool inMenu = false;
@@ -30,7 +32,7 @@ namespace CoasterForge.UI {
                 }
 
                 if (!inMenu && menu.parent != null) {
-                    element.Remove(menu);
+                    root.Remove(menu);
                     root.UnregisterCallback((EventCallback<MouseDownEvent>)OnMouseDown, TrickleDown.TrickleDown);
                 }
             }

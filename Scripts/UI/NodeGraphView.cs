@@ -42,11 +42,12 @@ namespace CoasterForge.UI {
         public List<Edge> SelectedEdges => _selectedEdges;
         public VisualElement ConnectionsLayer => _connectionsLayer;
         public VisualElement NodesLayer => _nodesLayer;
-        public Vector2 ContentOffset => _offset;
+        public Vector2 Offset => _offset;
         public float Zoom => _zoom;
         public bool BoxSelecting => _boxSelecting;
 
-        public event Action<Vector2> AddNodeRequested;
+        public event Action<Vector2, SectionType> AddNodeRequested;
+        public event Action<NodeGraphPort, Vector2, SectionType> AddConnectedNodeRequested;
         public event Action RemoveSelectedRequested;
         public event Action<List<NodeGraphNode>, float2> MoveNodesRequested;
         public event Action<NodeGraphPort, NodeGraphPort> ConnectionRequested;
@@ -167,12 +168,13 @@ namespace CoasterForge.UI {
         }
 
         public NodeGraphNode AddNode(
+            string name,
             Entity entity,
             Vector2 position,
             DynamicBuffer<InputPortReference> inputPorts,
             DynamicBuffer<OutputPortReference> outputPorts
         ) {
-            var node = new NodeGraphNode(this, entity, inputPorts, outputPorts);
+            var node = new NodeGraphNode(this, name, entity, inputPorts, outputPorts);
             Vector2 contentPosition = (position - _offset) / _zoom;
             node.style.left = contentPosition.x;
             node.style.top = contentPosition.y;
@@ -252,20 +254,19 @@ namespace CoasterForge.UI {
             edge.Selected = false;
         }
 
-        public void ClearNodes() {
+        public void ClearGraph() {
             foreach (NodeGraphNode node in _nodes) {
                 _nodesLayer.Remove(node);
             }
-            _nodes.Clear();
-            _selectedNodes.Clear();
-        }
-
-        public void ClearEdges() {
             foreach (Edge edge in _edges) {
                 _connectionsLayer.Remove(edge);
             }
+            _nodes.Clear();
             _edges.Clear();
+            _selectedNodes.Clear();
             _selectedEdges.Clear();
+
+            _tip.style.display = DisplayStyle.Flex;
         }
 
         public void ClearSelection() {
@@ -299,7 +300,7 @@ namespace CoasterForge.UI {
             _selectionBox.style.height = screenSize.y;
         }
 
-        private void SelectNodesInBox(Rect selectionRect) {
+        private void SelectBox(Rect selectionRect) {
             Vector2 contentStart = (new Vector2(selectionRect.x, selectionRect.y) - _offset) / _zoom;
             Vector2 contentSize = selectionRect.size / _zoom;
             Rect contentSpaceRect = new(contentStart, contentSize);
@@ -311,6 +312,16 @@ namespace CoasterForge.UI {
 
                 if (contentSpaceRect.Overlaps(nodeRect)) {
                     SelectNode(node, true);
+                }
+            }
+
+            foreach (Edge edge in _edges) {
+                Vector2 edgePos = new(edge.style.left.value.value, edge.style.top.value.value);
+                Vector2 edgeSize = new(edge.resolvedStyle.width, edge.resolvedStyle.height);
+                Rect edgeRect = new(edgePos, edgeSize);
+
+                if (contentSpaceRect.Overlaps(edgeRect)) {
+                    SelectEdge(edge, true);
                 }
             }
         }
@@ -334,8 +345,11 @@ namespace CoasterForge.UI {
                 Vector2 position = evt.localMousePosition;
                 Vector2 contentPosition = (position - _offset) / _zoom;
                 this.ShowContextMenu(position, menu => {
-                    menu.AddItem("Add Node", () => {
-                        AddNodeRequested?.Invoke(contentPosition);
+                    menu.AddItem("Add Force Section", () => {
+                        AddNodeRequested?.Invoke(contentPosition, SectionType.Force);
+                    });
+                    menu.AddItem("Add Geometric Section", () => {
+                        AddNodeRequested?.Invoke(contentPosition, SectionType.Geometric);
                     });
                 });
             }
@@ -376,7 +390,7 @@ namespace CoasterForge.UI {
                 float height = Mathf.Abs(evt.localMousePosition.y - _selectionStart.y);
 
                 Rect selectionRect = new(new Vector2(left, top), new Vector2(width, height));
-                SelectNodesInBox(selectionRect);
+                SelectBox(selectionRect);
                 evt.StopPropagation();
             }
 
@@ -517,6 +531,10 @@ namespace CoasterForge.UI {
             _lastSnappedNode = null;
             _snapX = false;
             _snapY = false;
+        }
+
+        public void InvokeAddConnectedNodeRequest(NodeGraphPort source, Vector2 position, SectionType sectionType) {
+            AddConnectedNodeRequested?.Invoke(source, position, sectionType);
         }
 
         public void InvokeRemoveSelectedRequest() {

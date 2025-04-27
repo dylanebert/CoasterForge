@@ -127,8 +127,8 @@ namespace CoasterForge.UI {
             worldStart = _view.WorldToLocal(worldStart);
             worldEnd = _view.WorldToLocal(worldEnd);
 
-            worldStart = (worldStart - _view.ContentOffset) / _view.Zoom;
-            worldEnd = (worldEnd - _view.ContentOffset) / _view.Zoom;
+            worldStart = (worldStart - _view.Offset) / _view.Zoom;
+            worldEnd = (worldEnd - _view.Offset) / _view.Zoom;
 
             Vector2 min = Vector2.Min(worldStart, worldEnd);
             Vector2 max = Vector2.Max(worldStart, worldEnd);

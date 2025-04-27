@@ -147,6 +147,8 @@ namespace CoasterForge.UI {
         }
 
         private void OnMouseEnter(MouseEnterEvent evt) {
+            if (s_DraggedPort?.Node == _node
+                || s_DraggedPort?.IsInput == _isInput) return;
             s_HoveredPort = this;
             UpdateCapDisplay();
         }
@@ -162,6 +164,7 @@ namespace CoasterForge.UI {
             if (evt.button != 0) return;
 
             s_DraggedPort = this;
+            s_HoveredPort = null;
             _dragEdge = new Edge(_view, Entity.Null, this);
             _view.ConnectionsLayer.Add(_dragEdge);
             _dragEdge.SetDragEnd(evt.mousePosition);
@@ -186,6 +189,20 @@ namespace CoasterForge.UI {
                 NodeGraphPort source = s_DraggedPort.IsInput ? s_HoveredPort : s_DraggedPort;
                 NodeGraphPort target = s_DraggedPort.IsInput ? s_DraggedPort : s_HoveredPort;
                 _view.InvokeConnectionRequest(source, target);
+            }
+            else {
+                Vector2 localPosition = evt.localMousePosition;
+                Vector2 worldPosition = _connector.LocalToWorld(localPosition);
+                Vector2 viewPosition = _view.WorldToLocal(worldPosition);
+                Vector2 contentPosition = (viewPosition - _view.Offset) / _view.Zoom;
+                _view.ShowContextMenu(viewPosition, menu => {
+                    menu.AddItem("Add Force Section", () => {
+                        _view.InvokeAddConnectedNodeRequest(this, contentPosition, SectionType.Force);
+                    });
+                    menu.AddItem("Add Geometric Section", () => {
+                        _view.InvokeAddConnectedNodeRequest(this, contentPosition, SectionType.Geometric);
+                    });
+                });
             }
 
             s_DraggedPort = null;

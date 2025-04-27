@@ -4,11 +4,14 @@ using System.Collections.Generic;
 namespace CoasterForge.UI {
     [Serializable]
     public class SerializedNode {
+        public Name Name;
         public Section Section;
         public UIPosition Position;
         public List<Keyframe> RollSpeedKeyframes;
         public List<Keyframe> NormalForceKeyframes;
         public List<Keyframe> LateralForceKeyframes;
+        public List<Keyframe> PitchSpeedKeyframes;
+        public List<Keyframe> YawSpeedKeyframes;
         public List<SerializedPort> InputPorts;
         public List<SerializedPort> OutputPorts;
     }

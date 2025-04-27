@@ -51,6 +51,7 @@ namespace CoasterForge.UI {
 
         public NodeGraphNode(
             NodeGraphView view,
+            string name,
             Entity entity,
             DynamicBuffer<InputPortReference> inputPorts,
             DynamicBuffer<OutputPortReference> outputPorts
@@ -99,7 +100,7 @@ namespace CoasterForge.UI {
                     backgroundColor = s_HeaderColor
                 }
             };
-            _header.Add(new Label("Node") {
+            _header.Add(new Label(name) {
                 style = {
                     marginLeft = 6f,
                     marginRight = 6f,

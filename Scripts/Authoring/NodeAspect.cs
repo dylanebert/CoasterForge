@@ -1,9 +1,11 @@
+using Unity.Collections;
 using Unity.Entities;
 
 namespace CoasterForge {
     public readonly partial struct NodeAspect : IAspect {
         public readonly Entity Self;
 
+        private readonly RefRO<Name> NameRO;
         private readonly RefRO<Node> NodeRO;
 
         private readonly RefRW<Dirty> DirtyRW;
@@ -16,6 +18,7 @@ namespace CoasterForge {
             set => DirtyRW.ValueRW.Value = value;
         }
 
+        public FixedString64Bytes Name => NameRO.ValueRO;
         public Node Node => NodeRO.ValueRO;
     }
 }
