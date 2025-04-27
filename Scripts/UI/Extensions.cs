@@ -16,6 +16,8 @@ namespace CoasterForge.UI {
             configureMenu(menu);
             element.Add(menu);
 
+            var root = element.panel.visualTree;
+
             void OnMouseDown(MouseDownEvent evt) {
                 bool inMenu = false;
                 VisualElement target = evt.target as VisualElement;
@@ -29,10 +31,10 @@ namespace CoasterForge.UI {
 
                 if (!inMenu && menu.parent != null) {
                     element.Remove(menu);
-                    element.panel.visualTree.UnregisterCallback((EventCallback<MouseDownEvent>)OnMouseDown, TrickleDown.TrickleDown);
+                    root.UnregisterCallback((EventCallback<MouseDownEvent>)OnMouseDown, TrickleDown.TrickleDown);
                 }
             }
-            element.panel.visualTree.RegisterCallback((EventCallback<MouseDownEvent>)OnMouseDown, TrickleDown.TrickleDown);
+            root.RegisterCallback((EventCallback<MouseDownEvent>)OnMouseDown, TrickleDown.TrickleDown);
         }
     }
 }

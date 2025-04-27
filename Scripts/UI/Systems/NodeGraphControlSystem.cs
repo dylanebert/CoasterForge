@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
 using static CoasterForge.Constants;
 
@@ -11,14 +12,23 @@ namespace CoasterForge.UI {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial class NodeGraphControlSystem : SystemBase {
         private Dictionary<Entity, NodeGraphNode> _nodeMap = new();
+        private Dictionary<Entity, Edge> _edgeMap = new();
         private NodeGraphView _view;
 
         private EntityQuery _nodeQuery;
+        private EntityQuery _connectionQuery;
+        private EntityQuery _portQuery;
 
         protected override void OnCreate() {
             _nodeQuery = new EntityQueryBuilder(Allocator.Temp)
                 .WithAspect<NodeAspect>()
                 .WithAll<UIPosition>()
+                .Build(EntityManager);
+            _connectionQuery = new EntityQueryBuilder(Allocator.Temp)
+                .WithAspect<ConnectionAspect>()
+                .Build(EntityManager);
+            _portQuery = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<PointPort, Uuid>()
                 .Build(EntityManager);
         }
 
@@ -28,25 +38,38 @@ namespace CoasterForge.UI {
             var root = UIService.Instance.UIDocument.rootVisualElement;
             _view = root.Q<NodeGraphView>();
             _view.AddNodeRequested += OnAddNodeRequested;
-            _view.RemoveNodeRequested += OnRemoveNodeRequested;
+            _view.RemoveSelectedRequested += OnRemoveSelectedRequested;
             _view.MoveNodesRequested += OnMoveNodesRequested;
+            _view.ConnectionRequested += OnConnectionRequested;
         }
 
         protected override void OnStopRunning() {
             _view.AddNodeRequested -= OnAddNodeRequested;
-            _view.RemoveNodeRequested -= OnRemoveNodeRequested;
+            _view.RemoveSelectedRequested -= OnRemoveSelectedRequested;
             _view.MoveNodesRequested -= OnMoveNodesRequested;
+            _view.ConnectionRequested -= OnConnectionRequested;
         }
 
         protected override void OnUpdate() {
+            if (Keyboard.current.deleteKey.wasPressedThisFrame) {
+                OnRemoveSelectedRequested();
+            }
+
+            UpdateNodes();
+            UpdateEdges();
+        }
+
+        private void UpdateNodes() {
             var nodes = _nodeQuery.ToEntityArray(Allocator.Temp);
             var positions = _nodeQuery.ToComponentDataArray<UIPosition>(Allocator.Temp);
             for (int i = 0; i < nodes.Length; i++) {
                 var node = nodes[i];
                 var position = positions[i];
+                var inputPorts = SystemAPI.GetBuffer<InputPortReference>(node);
+                var outputPorts = SystemAPI.GetBuffer<OutputPortReference>(node);
 
                 if (!_nodeMap.TryGetValue(node, out var uiNode)) {
-                    uiNode = _view.AddNode(node, position);
+                    uiNode = _view.AddNode(node, position, inputPorts, outputPorts);
                     _nodeMap[node] = uiNode;
                 }
 
@@ -68,6 +91,61 @@ namespace CoasterForge.UI {
 
             nodes.Dispose();
             positions.Dispose();
+        }
+
+        private void UpdateEdges() {
+            var connections = _connectionQuery.ToEntityArray(Allocator.Temp);
+            foreach (var connection in connections) {
+                if (!_edgeMap.TryGetValue(connection, out var edge)) {
+                    var source = FindSourcePort(connection);
+                    var target = FindTargetPort(connection);
+                    edge = _view.AddEdge(connection, source, target);
+                    _edgeMap[connection] = edge;
+                }
+            }
+
+            var toRemove = new NativeList<Entity>(Allocator.Temp);
+            foreach (var connection in _edgeMap.Keys) {
+                if (!connections.Contains(connection)) {
+                    var edge = _edgeMap[connection];
+                    _view.RemoveEdge(edge);
+                    toRemove.Add(connection);
+                }
+            }
+            foreach (var connection in toRemove) {
+                _edgeMap.Remove(connection);
+            }
+            toRemove.Dispose();
+
+            connections.Dispose();
+        }
+
+        private NodeGraphPort FindSourcePort(Entity connectionEntity) {
+            var connection = SystemAPI.GetComponent<Connection>(connectionEntity);
+            foreach (var node in _nodeMap.Values) {
+                foreach (var port in node.Outputs) {
+                    if (port.Entity == connection.SourcePort) {
+                        return port;
+                    }
+                }
+            }
+
+            Debug.LogError("Failed to find source port");
+            return null;
+        }
+
+        private NodeGraphPort FindTargetPort(Entity connectionEntity) {
+            var connection = SystemAPI.GetComponent<Connection>(connectionEntity);
+            foreach (var node in _nodeMap.Values) {
+                foreach (var port in node.Inputs) {
+                    if (port.Entity == connection.TargetPort) {
+                        return port;
+                    }
+                }
+            }
+
+            Debug.LogError("Failed to find target port");
+            return null;
         }
 
         private void OnAddNodeRequested(Vector2 position) {
@@ -95,6 +173,8 @@ namespace CoasterForge.UI {
             ecb.AddBuffer<InputPortReference>(node);
             var inputPort = ecb.CreateEntity();
             ecb.AddComponent<Dirty>(inputPort, true);
+            uint uuid = (uint)Guid.NewGuid().GetHashCode();
+            ecb.AddComponent<Uuid>(inputPort, uuid);
             var inputPoint = PointData.Default;
             inputPoint.Velocity = 10f;
             inputPoint.Energy = 0.5f * inputPoint.Velocity * inputPoint.Velocity + G * inputPoint.GetHeartPosition(CENTER).y;
@@ -105,6 +185,8 @@ namespace CoasterForge.UI {
             ecb.AddBuffer<OutputPortReference>(node);
             var outputPort = ecb.CreateEntity();
             ecb.AddComponent<Dirty>(outputPort);
+            uuid = (uint)Guid.NewGuid().GetHashCode();
+            ecb.AddComponent<Uuid>(outputPort, uuid);
             ecb.AddComponent<PointPort>(outputPort, PointData.Default);
             ecb.AppendToBuffer<OutputPortReference>(node, outputPort);
             ecb.SetName(outputPort, "Output Port");
@@ -115,20 +197,26 @@ namespace CoasterForge.UI {
             ecb.Dispose();
         }
 
-        private void OnRemoveNodeRequested(NodeGraphNode node) {
+        private void OnRemoveSelectedRequested() {
             UndoManager.Record();
 
             var ecb = new EntityCommandBuffer(Allocator.Temp);
-            var entity = node.Entity;
-            var inputPortBuffer = SystemAPI.GetBuffer<InputPortReference>(entity);
-            var outputPortBuffer = SystemAPI.GetBuffer<OutputPortReference>(entity);
-            foreach (var port in inputPortBuffer) {
-                ecb.DestroyEntity(port);
+            foreach (var node in _view.SelectedNodes) {
+                var entity = node.Entity;
+                var inputPortBuffer = SystemAPI.GetBuffer<InputPortReference>(entity);
+                var outputPortBuffer = SystemAPI.GetBuffer<OutputPortReference>(entity);
+                foreach (var port in inputPortBuffer) {
+                    ecb.DestroyEntity(port);
+                }
+                foreach (var port in outputPortBuffer) {
+                    ecb.DestroyEntity(port);
+                }
+                ecb.DestroyEntity(entity);
             }
-            foreach (var port in outputPortBuffer) {
-                ecb.DestroyEntity(port);
+            foreach (var edge in _view.SelectedEdges) {
+                var entity = edge.Entity;
+                ecb.DestroyEntity(entity);
             }
-            ecb.DestroyEntity(entity);
             ecb.Playback(EntityManager);
             ecb.Dispose();
         }
@@ -141,8 +229,46 @@ namespace CoasterForge.UI {
             }
         }
 
+        private void OnConnectionRequested(NodeGraphPort source, NodeGraphPort target) {
+            UndoManager.Record();
+
+            var ecb = new EntityCommandBuffer(Allocator.Temp);
+
+            var connections = _connectionQuery.ToEntityArray(Allocator.Temp);
+            var toRemove = new NativeHashSet<Entity>(connections.Length, Allocator.Temp);
+            foreach (var existingEntity in connections) {
+                var existing = SystemAPI.GetComponent<Connection>(existingEntity);
+                if (existing.SourcePort == source.Entity
+                    || existing.TargetPort == source.Entity
+                    || existing.SourcePort == target.Entity
+                    || existing.TargetPort == target.Entity) {
+                    toRemove.Add(existingEntity);
+                }
+            }
+            connections.Dispose();
+
+            foreach (var existingEntity in toRemove) {
+                ecb.DestroyEntity(existingEntity);
+            }
+            toRemove.Dispose();
+
+            var connection = ecb.CreateEntity();
+            ecb.AddComponent<Dirty>(connection);
+            ecb.AddComponent(connection, new Connection {
+                SourcePort = source.Entity,
+                TargetPort = target.Entity,
+            });
+            ecb.SetName(connection, "Connection");
+
+            ecb.SetComponent<Dirty>(source.Entity, true);
+
+            ecb.Playback(EntityManager);
+            ecb.Dispose();
+        }
+
         private string SerializeGraph() {
             var nodes = new List<SerializedNode>();
+            var edges = new List<SerializedEdge>();
             foreach (var nodeEntity in _nodeMap.Keys) {
                 var section = SystemAPI.GetComponent<Section>(nodeEntity);
                 var position = SystemAPI.GetComponent<UIPosition>(nodeEntity);
@@ -169,16 +295,20 @@ namespace CoasterForge.UI {
 
                 var inputPorts = new List<SerializedPort>();
                 foreach (var port in inputPortBuffer) {
+                    var uuid = SystemAPI.GetComponent<Uuid>(port);
                     var point = SystemAPI.GetComponent<PointPort>(port);
                     inputPorts.Add(new SerializedPort {
-                        Point = point
+                        Id = uuid,
+                        Point = point,
                     });
                 }
 
                 var outputPorts = new List<SerializedPort>();
                 foreach (var port in outputPortBuffer) {
+                    var uuid = SystemAPI.GetComponent<Uuid>(port);
                     var point = SystemAPI.GetComponent<PointPort>(port);
                     outputPorts.Add(new SerializedPort {
+                        Id = uuid,
                         Point = point,
                     });
                 }
@@ -194,8 +324,19 @@ namespace CoasterForge.UI {
                 });
             }
 
+            foreach (var edgeEntity in _edgeMap.Keys) {
+                var connection = SystemAPI.GetComponent<Connection>(edgeEntity);
+                var source = SystemAPI.GetComponent<Uuid>(connection.SourcePort);
+                var target = SystemAPI.GetComponent<Uuid>(connection.TargetPort);
+                edges.Add(new SerializedEdge {
+                    SourceId = source,
+                    TargetId = target,
+                });
+            }
+
             var serializedGraph = new SerializedGraph {
                 Nodes = nodes,
+                Edges = edges,
             };
 
             return JsonUtility.ToJson(serializedGraph);
@@ -213,6 +354,8 @@ namespace CoasterForge.UI {
                 ecb.DestroyEntity(entity);
             }
             _nodeMap.Clear();
+            _edgeMap.Clear();
+            _view.ClearEdges();
             _view.ClearNodes();
             ecb.Playback(EntityManager);
             ecb.Dispose();
@@ -220,7 +363,6 @@ namespace CoasterForge.UI {
             var serializedGraph = JsonUtility.FromJson<SerializedGraph>(json);
 
             ecb = new EntityCommandBuffer(Allocator.Temp);
-
             foreach (var node in serializedGraph.Nodes) {
                 var entity = ecb.CreateEntity();
 
@@ -250,6 +392,7 @@ namespace CoasterForge.UI {
                 foreach (var port in node.InputPorts) {
                     var portEntity = ecb.CreateEntity();
                     ecb.AddComponent<Dirty>(portEntity, true);
+                    ecb.AddComponent<Uuid>(portEntity, port.Id);
                     ecb.AddComponent<PointPort>(portEntity, port.Point);
                     ecb.AppendToBuffer<InputPortReference>(entity, portEntity);
                     ecb.SetName(portEntity, "Input Port");
@@ -259,6 +402,7 @@ namespace CoasterForge.UI {
                 foreach (var port in node.OutputPorts) {
                     var portEntity = ecb.CreateEntity();
                     ecb.AddComponent<Dirty>(portEntity);
+                    ecb.AddComponent<Uuid>(portEntity, port.Id);
                     ecb.AddComponent<PointPort>(portEntity, port.Point);
                     ecb.AppendToBuffer<OutputPortReference>(entity, portEntity);
                     ecb.SetName(portEntity, "Output Port");
@@ -269,6 +413,31 @@ namespace CoasterForge.UI {
 
             ecb.Playback(EntityManager);
             ecb.Dispose();
+
+            var ports = _portQuery.ToEntityArray(Allocator.Temp);
+            var portMap = new NativeHashMap<uint, Entity>(ports.Length, Allocator.Temp);
+            foreach (var port in ports) {
+                var uuid = SystemAPI.GetComponent<Uuid>(port);
+                portMap[uuid] = port;
+            }
+            ports.Dispose();
+
+            ecb = new EntityCommandBuffer(Allocator.Temp);
+            foreach (var edge in serializedGraph.Edges) {
+                var source = portMap[edge.SourceId];
+                var target = portMap[edge.TargetId];
+                var connection = ecb.CreateEntity();
+                ecb.AddComponent<Dirty>(connection);
+                ecb.AddComponent(connection, new Connection {
+                    SourcePort = source,
+                    TargetPort = target,
+                });
+                ecb.SetName(connection, "Connection");
+            }
+            ecb.Playback(EntityManager);
+            ecb.Dispose();
+
+            portMap.Dispose();
         }
     }
 }

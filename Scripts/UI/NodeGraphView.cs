@@ -17,8 +17,12 @@ namespace CoasterForge.UI {
         private static readonly Color s_SelectionBoxColor = new(0.2f, 0.5f, 0.9f, 0.5f);
 
         private List<NodeGraphNode> _nodes = new();
+        private List<Edge> _edges = new();
         private List<NodeGraphNode> _selectedNodes = new();
-        private NodeGraphContent _content;
+        private List<Edge> _selectedEdges = new();
+        private VisualElement _content;
+        private VisualElement _connectionsLayer;
+        private VisualElement _nodesLayer;
         private NodeGraphNode _lastSnappedNode;
         private VisualElement _container;
         private VisualElement _horizontalGuide;
@@ -35,11 +39,17 @@ namespace CoasterForge.UI {
         private bool _boxSelecting;
 
         public List<NodeGraphNode> SelectedNodes => _selectedNodes;
+        public List<Edge> SelectedEdges => _selectedEdges;
+        public VisualElement ConnectionsLayer => _connectionsLayer;
+        public VisualElement NodesLayer => _nodesLayer;
+        public Vector2 ContentOffset => _offset;
+        public float Zoom => _zoom;
         public bool BoxSelecting => _boxSelecting;
 
         public event Action<Vector2> AddNodeRequested;
-        public event Action<NodeGraphNode> RemoveNodeRequested;
+        public event Action RemoveSelectedRequested;
         public event Action<List<NodeGraphNode>, float2> MoveNodesRequested;
+        public event Action<NodeGraphPort, NodeGraphPort> ConnectionRequested;
 
         public NodeGraphView() {
             style.position = Position.Absolute;
@@ -116,8 +126,39 @@ namespace CoasterForge.UI {
             _container.Add(_horizontalGuide);
             _container.Add(_verticalGuide);
 
-            _content = new NodeGraphContent();
+            _content = new VisualElement {
+                style = {
+                    position = Position.Absolute,
+                    width = 0,
+                    height = 0,
+                    backgroundColor = Color.clear,
+                },
+                pickingMode = PickingMode.Ignore
+            };
             _container.Add(_content);
+
+            _connectionsLayer = new VisualElement {
+                style = {
+                    position = Position.Absolute,
+                    width = 0,
+                    height = 0,
+                    top = 0,
+                    left = 0,
+                },
+                pickingMode = PickingMode.Ignore
+            };
+            _nodesLayer = new VisualElement {
+                style = {
+                    position = Position.Absolute,
+                    width = 0,
+                    height = 0,
+                    top = 0,
+                    left = 0,
+                },
+                pickingMode = PickingMode.Ignore
+            };
+            _content.Add(_connectionsLayer);
+            _content.Add(_nodesLayer);
 
             RegisterCallback<MouseDownEvent>(OnMouseDown);
             RegisterCallback<MouseMoveEvent>(OnMouseMove);
@@ -125,30 +166,57 @@ namespace CoasterForge.UI {
             RegisterCallback<WheelEvent>(OnWheel);
         }
 
-        public NodeGraphNode AddNode(Entity entity, Vector2 position) {
-            var node = new NodeGraphNode(this, entity);
-            InitializeNode(node, position);
+        public NodeGraphNode AddNode(
+            Entity entity,
+            Vector2 position,
+            DynamicBuffer<InputPortReference> inputPorts,
+            DynamicBuffer<OutputPortReference> outputPorts
+        ) {
+            var node = new NodeGraphNode(this, entity, inputPorts, outputPorts);
+            Vector2 contentPosition = (position - _offset) / _zoom;
+            node.style.left = contentPosition.x;
+            node.style.top = contentPosition.y;
+            _nodesLayer.Add(node);
+            _nodes.Add(node);
 
             _tip.style.display = DisplayStyle.None;
 
             return node;
         }
 
-        public void AddExistingNode(NodeGraphNode node, Vector2 position) {
-            InitializeNode(node, position);
-        }
+        public Edge AddEdge(Entity entity, NodeGraphPort source, NodeGraphPort target) {
+            var edge = new Edge(this, entity, source, target);
+            _edges.Add(edge);
+            _connectionsLayer.Add(edge);
 
-        private void InitializeNode(NodeGraphNode node, Vector2 position) {
-            Vector2 contentPosition = (position - _offset) / _zoom;
-            node.style.left = contentPosition.x;
-            node.style.top = contentPosition.y;
-            _content.Add(node);
-            _nodes.Add(node);
+            source.SetConnected(true);
+            target.SetConnected(true);
+
+            return edge;
         }
 
         public void RemoveNode(NodeGraphNode node) {
             _nodes.Remove(node);
-            _content.Remove(node);
+            _nodesLayer.Remove(node);
+            _selectedNodes.Remove(node);
+        }
+
+        public void RemoveEdge(Edge edge) {
+            _edges.Remove(edge);
+            _connectionsLayer.Remove(edge);
+            _selectedEdges.Remove(edge);
+
+            edge.Source.SetConnected(IsPortConnected(edge.Source));
+            edge.Target.SetConnected(IsPortConnected(edge.Target));
+        }
+
+        private bool IsPortConnected(NodeGraphPort port) {
+            foreach (var edge in _edges) {
+                if (edge.Source == port || edge.Target == port) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void SelectNode(NodeGraphNode node, bool addToSelection = false) {
@@ -163,24 +231,52 @@ namespace CoasterForge.UI {
             }
         }
 
+        public void SelectEdge(Edge edge, bool addToSelection = false) {
+            if (!addToSelection) {
+                ClearSelection();
+            }
+
+            if (edge != null && !_selectedEdges.Contains(edge)) {
+                _selectedEdges.Add(edge);
+                edge.Selected = true;
+            }
+        }
+
         public void DeselectNode(NodeGraphNode node) {
             _selectedNodes.Remove(node);
             node.Selected = false;
         }
 
+        public void DeselectEdge(Edge edge) {
+            _selectedEdges.Remove(edge);
+            edge.Selected = false;
+        }
+
         public void ClearNodes() {
             foreach (NodeGraphNode node in _nodes) {
-                _content.Remove(node);
+                _nodesLayer.Remove(node);
             }
             _nodes.Clear();
             _selectedNodes.Clear();
+        }
+
+        public void ClearEdges() {
+            foreach (Edge edge in _edges) {
+                _connectionsLayer.Remove(edge);
+            }
+            _edges.Clear();
+            _selectedEdges.Clear();
         }
 
         public void ClearSelection() {
             foreach (NodeGraphNode node in _selectedNodes) {
                 node.Selected = false;
             }
+            foreach (Edge edge in _selectedEdges) {
+                edge.Selected = false;
+            }
             _selectedNodes.Clear();
+            _selectedEdges.Clear();
         }
 
         private void UpdateSelectionBox(Vector2 position) {
@@ -236,14 +332,15 @@ namespace CoasterForge.UI {
 
             else if (evt.button == 1 && evt.target == _container) {
                 Vector2 position = evt.localMousePosition;
+                Vector2 contentPosition = (position - _offset) / _zoom;
                 this.ShowContextMenu(position, menu => {
                     menu.AddItem("Add Node", () => {
-                        AddNodeRequested?.Invoke(position);
+                        AddNodeRequested?.Invoke(contentPosition);
                     });
                 });
             }
 
-            else if (evt.button == 2) {
+            if (evt.button == 2) {
                 _panning = true;
                 _start = evt.localMousePosition;
                 this.CaptureMouse();
@@ -422,12 +519,16 @@ namespace CoasterForge.UI {
             _snapY = false;
         }
 
-        public void InvokeRemoveNodeRequest(NodeGraphNode node) {
-            RemoveNodeRequested?.Invoke(node);
+        public void InvokeRemoveSelectedRequest() {
+            RemoveSelectedRequested?.Invoke();
         }
 
-        public void MoveSelectedNodes(float2 delta) {
+        public void InvokeMoveNodesRequest(float2 delta) {
             MoveNodesRequested?.Invoke(_selectedNodes, delta);
+        }
+
+        public void InvokeConnectionRequest(NodeGraphPort source, NodeGraphPort target) {
+            ConnectionRequested?.Invoke(source, target);
         }
     }
 }
