@@ -1,5 +1,6 @@
 using System.Text;
 using Unity.Mathematics;
+using static CoasterForge.Constants;
 
 namespace CoasterForge {
     [System.Serializable]
@@ -23,26 +24,35 @@ namespace CoasterForge {
         public float TotalHeartLength;
         public float TieDistance;
 
-        public static PointData Default => new() {
-            Position = float3.zero,
-            Direction = math.back(),
-            Lateral = math.right(),
-            Normal = math.down(),
-            Roll = 0f,
-            Velocity = 0f,
-            Energy = 0f,
-            NormalForce = 1f,
-            LateralForce = 0f,
-            DistanceFromLast = 0f,
-            HeartDistanceFromLast = 0f,
-            AngleFromLast = 0f,
-            PitchFromLast = 0f,
-            YawFromLast = 0f,
-            RollSpeed = 0f,
-            TotalLength = 0f,
-            TotalHeartLength = 0f,
-            TieDistance = 0f,
-        };
+        public static PointData Create(float velocity = 10f) {
+            return Create(float3.zero, velocity);
+        }
+
+        public static PointData Create(float3 position, float velocity = 10f) {
+            PointData point = new() {
+                Position = position,
+                Direction = math.back(),
+                Lateral = math.right(),
+                Normal = math.down(),
+                Roll = 0f,
+                Velocity = velocity,
+                Energy = 0f,
+                NormalForce = 1f,
+                LateralForce = 0f,
+                DistanceFromLast = 0f,
+                HeartDistanceFromLast = 0f,
+                AngleFromLast = 0f,
+                PitchFromLast = 0f,
+                YawFromLast = 0f,
+                RollSpeed = 0f,
+                TotalLength = 0f,
+                TotalHeartLength = 0f,
+                TieDistance = 0f,
+            };
+            point.Energy = 0.5f * point.Velocity * point.Velocity
+                + G * point.GetHeartPosition(CENTER).y;
+            return point;
+        }
 
         public override string ToString() {
             StringBuilder sb = new();

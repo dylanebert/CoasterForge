@@ -121,39 +121,41 @@ namespace CoasterForge.UI {
         }
 
         private void UpdateBounds() {
-            Vector2 worldStart = _source.worldBound.center;
-            Vector2 worldEnd = _target == null ? _dragEnd : _target.worldBound.center;
+            Vector2 start = _source.Connector.worldBound.center;
+            Vector2 end = _target == null ? _dragEnd : _target.Connector.worldBound.center;
 
-            worldStart = _view.WorldToLocal(worldStart);
-            worldEnd = _view.WorldToLocal(worldEnd);
+            start = _view.WorldToLocal(start);
+            end = _view.WorldToLocal(end);
 
-            worldStart = (worldStart - _view.Offset) / _view.Zoom;
-            worldEnd = (worldEnd - _view.Offset) / _view.Zoom;
+            start = (start - _view.Offset) / _view.Zoom;
+            end = (end - _view.Offset) / _view.Zoom;
 
-            Vector2 min = Vector2.Min(worldStart, worldEnd);
-            Vector2 max = Vector2.Max(worldStart, worldEnd);
+            Vector2 min = Vector2.Min(start, end);
+            Vector2 max = Vector2.Max(start, end);
 
             const float padding = 16f;
             min -= new Vector2(padding, padding);
             max += new Vector2(padding, padding);
 
             Vector2 size = max - min;
-            Vector2 center = (worldStart + worldEnd) / 2f;
+            Vector2 center = (start + end) / 2f;
 
             style.left = center.x - size.x * 0.5f;
             style.top = center.y - size.y * 0.5f;
             style.width = size.x;
             style.height = size.y;
 
-            _start = worldStart - (center - size * 0.5f);
-            _end = worldEnd - (center - size * 0.5f);
+            _start = start - (center - size * 0.5f);
+            _end = end - (center - size * 0.5f);
 
             MarkDirtyRepaint();
         }
 
         private void OnGenerateVisualContent(MeshGenerationContext ctx) {
-            const float width = 50f;
-            float dx = _source.IsInput ? -width : width;
+            float dist = Mathf.Abs(_end.x - _start.x);
+            float maxWidth = dist * 0.5f;
+            float width = Mathf.Min(maxWidth, 50f);
+            float dx = _source.Data.IsInput ? -width : width;
             Vector2 control1 = _start + new Vector2(dx, 0f);
             Vector2 control2 = _end - new Vector2(dx, 0f);
 

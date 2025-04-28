@@ -8,31 +8,37 @@ namespace CoasterForge.UI {
         private static NodeGraphPort s_HoveredPort = null;
 
         private static readonly Color s_PortColor = new(0.8f, 0.7f, 0.2f);
+        private static readonly Color s_CircleBackgroundColor = new(0.2f, 0.2f, 0.2f);
 
         private NodeGraphView _view;
         private NodeGraphNode _node;
-        private Entity _entity;
+        private PortData _data;
+
         private VisualElement _connector;
         private VisualElement _circle;
         private VisualElement _cap;
+        private PortInputView _inputView;
         private Label _label;
         private Edge _dragEdge;
-        private bool _isInput;
         private bool _isConnected;
 
         public NodeGraphNode Node => _node;
-        public Entity Entity => _entity;
-        public bool IsInput => _isInput;
+        public VisualElement Connector => _connector;
+        public PortData Data => _data;
 
-        public NodeGraphPort(NodeGraphView view, NodeGraphNode node, Entity entity, bool isInput) {
+        public NodeGraphPort(
+            NodeGraphView view,
+            NodeGraphNode node,
+            PortData data,
+            string name
+        ) {
             _view = view;
             _node = node;
-            _entity = entity;
-            _isInput = isInput;
+            _data = data;
 
             style.position = Position.Relative;
             style.flexGrow = 1f;
-            style.flexDirection = isInput ? FlexDirection.Row : FlexDirection.RowReverse;
+            style.flexDirection = data.IsInput ? FlexDirection.Row : FlexDirection.RowReverse;
             style.justifyContent = Justify.FlexStart;
             style.alignItems = Align.Center;
             style.paddingLeft = 4f;
@@ -90,6 +96,7 @@ namespace CoasterForge.UI {
                     borderRightColor = s_PortColor,
                     borderTopColor = s_PortColor,
                     borderBottomColor = s_PortColor,
+                    backgroundColor = s_CircleBackgroundColor
                 }
             };
             _connector.Add(_circle);
@@ -108,7 +115,7 @@ namespace CoasterForge.UI {
             };
             _circle.Add(_cap);
 
-            _label = new Label(isInput ? "Input" : "Output") {
+            _label = new Label(name) {
                 style = {
                     marginLeft = 4f,
                     marginRight = 4f,
@@ -122,14 +129,21 @@ namespace CoasterForge.UI {
             };
             Add(_label);
 
+            if (_data.IsInput) {
+                _inputView = new PortInputView(this);
+                Add(_inputView);
+            }
+
             _connector.RegisterCallback<MouseEnterEvent>(OnMouseEnter);
             _connector.RegisterCallback<MouseLeaveEvent>(OnMouseLeave);
             _connector.RegisterCallback<MouseDownEvent>(OnMouseDown);
             _connector.RegisterCallback<MouseMoveEvent>(OnMouseMove);
             _connector.RegisterCallback<MouseUpEvent>(OnMouseUp);
+
+            UpdateDisplay();
         }
 
-        private void UpdateCapDisplay() {
+        private void UpdateDisplay() {
             if (_isConnected && s_DraggedPort != this) {
                 _cap.style.display = DisplayStyle.Flex;
             }
@@ -139,25 +153,32 @@ namespace CoasterForge.UI {
             else {
                 _cap.style.display = DisplayStyle.None;
             }
+
+            if (_inputView != null) {
+                _inputView.style.display = _isConnected ? DisplayStyle.None : DisplayStyle.Flex;
+            }
         }
 
         public void SetConnected(bool connected) {
             _isConnected = connected;
-            UpdateCapDisplay();
+            UpdateDisplay();
         }
 
         private void OnMouseEnter(MouseEnterEvent evt) {
-            if (s_DraggedPort?.Node == _node
-                || s_DraggedPort?.IsInput == _isInput) return;
+            if (s_DraggedPort != null && (
+                    s_DraggedPort?.Node == _node
+                    || s_DraggedPort?.Data.IsInput == _data.IsInput
+                    || s_DraggedPort?.Data.Type != _data.Type
+                )) return;
             s_HoveredPort = this;
-            UpdateCapDisplay();
+            UpdateDisplay();
         }
 
         private void OnMouseLeave(MouseLeaveEvent evt) {
             if (s_HoveredPort == this) {
                 s_HoveredPort = null;
             }
-            UpdateCapDisplay();
+            UpdateDisplay();
         }
 
         private void OnMouseDown(MouseDownEvent evt) {
@@ -172,7 +193,7 @@ namespace CoasterForge.UI {
             evt.StopPropagation();
 
             SetConnectorColor(Color.clear);
-            UpdateCapDisplay();
+            UpdateDisplay();
         }
 
         private void OnMouseMove(MouseMoveEvent evt) {
@@ -186,22 +207,27 @@ namespace CoasterForge.UI {
             if (s_DraggedPort != this || evt.button != 0) return;
 
             if (s_HoveredPort != null) {
-                NodeGraphPort source = s_DraggedPort.IsInput ? s_HoveredPort : s_DraggedPort;
-                NodeGraphPort target = s_DraggedPort.IsInput ? s_DraggedPort : s_HoveredPort;
+                NodeGraphPort source = s_DraggedPort.Data.IsInput ? s_HoveredPort : s_DraggedPort;
+                NodeGraphPort target = s_DraggedPort.Data.IsInput ? s_DraggedPort : s_HoveredPort;
                 _view.InvokeConnectionRequest(source, target);
             }
-            else {
+            else if (_data.Type == PortType.Point) {
                 Vector2 localPosition = evt.localMousePosition;
                 Vector2 worldPosition = _connector.LocalToWorld(localPosition);
                 Vector2 viewPosition = _view.WorldToLocal(worldPosition);
                 Vector2 contentPosition = (viewPosition - _view.Offset) / _view.Zoom;
                 _view.ShowContextMenu(viewPosition, menu => {
                     menu.AddItem("Add Force Section", () => {
-                        _view.InvokeAddConnectedNodeRequest(this, contentPosition, SectionType.Force);
+                        _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.ForceSection);
                     });
                     menu.AddItem("Add Geometric Section", () => {
-                        _view.InvokeAddConnectedNodeRequest(this, contentPosition, SectionType.Geometric);
+                        _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.GeometricSection);
                     });
+                    if (_data.IsInput) {
+                        menu.AddItem("Add Anchor", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.Anchor);
+                        });
+                    }
                 });
             }
 
@@ -212,7 +238,7 @@ namespace CoasterForge.UI {
             evt.StopPropagation();
 
             SetConnectorColor(s_PortColor);
-            UpdateCapDisplay();
+            UpdateDisplay();
         }
 
         private void SetConnectorColor(Color color) {
@@ -220,6 +246,14 @@ namespace CoasterForge.UI {
             _circle.style.borderRightColor = color;
             _circle.style.borderTopColor = color;
             _circle.style.borderBottomColor = color;
+        }
+
+        public void SetData(PointData data) {
+            if (_data.Type != PortType.Float3) {
+                throw new System.NotImplementedException("Only position implemented");
+            }
+
+            _inputView.SetData(data);
         }
     }
 }

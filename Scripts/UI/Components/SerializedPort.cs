@@ -4,6 +4,8 @@ namespace CoasterForge.UI {
     [Serializable]
     public class SerializedPort {
         public uint Id;
-        public PointData Point;
+        public string Name;
+        public PortType Type;
+        public PointData Data;
     }
 }

@@ -37,14 +37,12 @@ namespace CoasterForge {
 
                 section.Points.Clear();
 
-                PointData anchor = PointData.Default;
+                PointData anchor = PointData.Create();
                 if (section.InputPorts.Length > 0 && PointPortLookup.TryGetComponent(section.InputPorts[0], out var inputPort)) {
                     anchor = inputPort.Value;
                 }
                 else {
                     UnityEngine.Debug.LogWarning("BuildForceSectionSystem: No input port found");
-                    anchor.Velocity = 10f;
-                    anchor.Energy = 0.5f * anchor.Velocity * anchor.Velocity + G * anchor.GetHeartPosition(CENTER).y;
                 }
                 section.Points.Add(anchor);
 

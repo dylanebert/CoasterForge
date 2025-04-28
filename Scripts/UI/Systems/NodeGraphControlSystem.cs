@@ -6,18 +6,20 @@ using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
-using static CoasterForge.Constants;
 
 namespace CoasterForge.UI {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial class NodeGraphControlSystem : SystemBase {
-        private readonly Dictionary<SectionType, string> _sectionTypeNames = new() {
-            { SectionType.Force, "Force Section" },
-            { SectionType.Geometric, "Geometric Section" },
+        private readonly Dictionary<NodeType, string> _names = new() {
+            { NodeType.ForceSection, "Force Section" },
+            { NodeType.GeometricSection, "Geometric Section" },
+            { NodeType.Anchor, "Anchor" },
         };
 
         private Dictionary<Entity, NodeGraphNode> _nodeMap = new();
         private Dictionary<Entity, Edge> _edgeMap = new();
+        private List<PortData> _inputPortData = new();
+        private List<PortData> _outputPortData = new();
         private NodeGraphView _view;
 
         private EntityQuery _nodeQuery;
@@ -47,6 +49,7 @@ namespace CoasterForge.UI {
             _view.RemoveSelectedRequested += OnRemoveSelectedRequested;
             _view.MoveNodesRequested += OnMoveNodesRequested;
             _view.ConnectionRequested += OnConnectionRequested;
+            _view.AnchorChangeRequested += OnAnchorChangeRequested;
         }
 
         protected override void OnStopRunning() {
@@ -55,6 +58,7 @@ namespace CoasterForge.UI {
             _view.RemoveSelectedRequested -= OnRemoveSelectedRequested;
             _view.MoveNodesRequested -= OnMoveNodesRequested;
             _view.ConnectionRequested -= OnConnectionRequested;
+            _view.AnchorChangeRequested -= OnAnchorChangeRequested;
         }
 
         protected override void OnUpdate() {
@@ -70,18 +74,57 @@ namespace CoasterForge.UI {
             var nodes = _nodeQuery.ToEntityArray(Allocator.Temp);
             var positions = _nodeQuery.ToComponentDataArray<UIPosition>(Allocator.Temp);
             for (int i = 0; i < nodes.Length; i++) {
-                var node = nodes[i];
-                var position = positions[i];
-                var inputPorts = SystemAPI.GetBuffer<InputPortReference>(node);
-                var outputPorts = SystemAPI.GetBuffer<OutputPortReference>(node);
+                Entity entity = nodes[i];
+                NodeType nodeType = SystemAPI.GetComponent<Node>(entity);
+                float2 position = positions[i];
+                var inputPorts = SystemAPI.GetBuffer<InputPortReference>(entity);
+                var outputPorts = SystemAPI.GetBuffer<OutputPortReference>(entity);
+                _inputPortData.Clear();
+                _outputPortData.Clear();
+                foreach (var port in inputPorts) {
+                    string name = SystemAPI.GetComponent<Name>(port);
+                    PortType portType = SystemAPI.GetComponent<Port>(port);
+                    PointData data = default;
+                    if (portType == PortType.Float3) {
+                        data.Position = SystemAPI.GetComponent<Float3Port>(port);
+                    }
+                    else if (portType == PortType.Point) {
+                        data = SystemAPI.GetComponent<PointPort>(port);
+                    }
+                    _inputPortData.Add(new PortData {
+                        Name = name,
+                        Entity = port,
+                        Type = portType,
+                        Data = data,
+                        IsInput = true,
+                    });
+                }
+                foreach (var port in outputPorts) {
+                    string name = SystemAPI.GetComponent<Name>(port);
+                    PortType portType = SystemAPI.GetComponent<Port>(port);
+                    PointData data = SystemAPI.GetComponent<PointPort>(port);
+                    _outputPortData.Add(new PortData {
+                        Name = name,
+                        Entity = port,
+                        Type = portType,
+                        Data = data,
+                        IsInput = false,
+                    });
+                }
 
-                if (!_nodeMap.TryGetValue(node, out var uiNode)) {
-                    string name = SystemAPI.GetComponent<Name>(node).ToString();
-                    uiNode = _view.AddNode(name, node, position, inputPorts, outputPorts);
-                    _nodeMap[node] = uiNode;
+                if (!_nodeMap.TryGetValue(entity, out var uiNode)) {
+                    string name = SystemAPI.GetComponent<Name>(entity).ToString();
+                    NodeType type = SystemAPI.GetComponent<Node>(entity);
+                    uiNode = _view.AddNode(name, entity, type, position, _inputPortData, _outputPortData);
+                    _nodeMap[entity] = uiNode;
                 }
 
                 uiNode.SetPosition(position);
+
+                if (nodeType == NodeType.Anchor) {
+                    PointData anchor = SystemAPI.GetComponent<Anchor>(entity);
+                    uiNode.SetAnchor(anchor);
+                }
             }
 
             var toRemove = new NativeList<Entity>(Allocator.Temp);
@@ -132,7 +175,7 @@ namespace CoasterForge.UI {
             var connection = SystemAPI.GetComponent<Connection>(connectionEntity);
             foreach (var node in _nodeMap.Values) {
                 foreach (var port in node.Outputs) {
-                    if (port.Entity == connection.SourcePort) {
+                    if (port.Data.Entity == connection.SourcePort) {
                         return port;
                     }
                 }
@@ -146,7 +189,7 @@ namespace CoasterForge.UI {
             var connection = SystemAPI.GetComponent<Connection>(connectionEntity);
             foreach (var node in _nodeMap.Values) {
                 foreach (var port in node.Inputs) {
-                    if (port.Entity == connection.TargetPort) {
+                    if (port.Data.Entity == connection.TargetPort) {
                         return port;
                     }
                 }
@@ -156,55 +199,82 @@ namespace CoasterForge.UI {
             return null;
         }
 
-        private Entity AddNode(Vector2 position, SectionType sectionType) {
+        private Entity AddNode(float2 position, NodeType nodeType) {
             var ecb = new EntityCommandBuffer(Allocator.Temp);
 
             var node = EntityManager.CreateEntity();
 
-            string name = _sectionTypeNames[sectionType];
+            string name = _names[nodeType];
             ecb.AddComponent<Name>(node, name);
-            ecb.AddComponent<Node>(node);
-            ecb.AddComponent<Dirty>(node);
-            ecb.AddBuffer<Point>(node);
-
-            ecb.AddComponent(node, new Section {
-                SectionType = sectionType,
-                DurationType = DurationType.Time,
-                Duration = 1f,
-                FixedVelocity = false,
-            });
+            ecb.AddComponent<Node>(node, nodeType);
             ecb.AddComponent<UIPosition>(node, position);
-
-            ecb.AddBuffer<RollSpeedKeyframe>(node);
-            if (sectionType == SectionType.Force) {
-                ecb.AddBuffer<NormalForceKeyframe>(node);
-                ecb.AddBuffer<LateralForceKeyframe>(node);
-            }
-            else {
-                ecb.AddBuffer<PitchSpeedKeyframe>(node);
-                ecb.AddBuffer<YawSpeedKeyframe>(node);
-            }
+            ecb.AddComponent<Dirty>(node);
 
             ecb.AddBuffer<InputPortReference>(node);
-            var inputPort = ecb.CreateEntity();
-            ecb.AddComponent<Dirty>(inputPort, true);
-            uint uuid = (uint)Guid.NewGuid().GetHashCode();
-            ecb.AddComponent<Uuid>(inputPort, uuid);
-            var inputPoint = PointData.Default;
-            inputPoint.Velocity = 10f;
-            inputPoint.Energy = 0.5f * inputPoint.Velocity * inputPoint.Velocity + G * inputPoint.GetHeartPosition(CENTER).y;
-            ecb.AddComponent<PointPort>(inputPort, inputPoint);
-            ecb.AppendToBuffer<InputPortReference>(node, inputPort);
-            ecb.SetName(inputPort, "Input Port");
+            if (nodeType == NodeType.Anchor) {
+                var inputPort = ecb.CreateEntity();
+                name = "Position";
+                ecb.AddComponent<Name>(inputPort, name);
+                ecb.AddComponent<Port>(inputPort, PortType.Float3);
+                ecb.AddComponent(inputPort, Uuid.Create());
+                ecb.AddComponent<Dirty>(inputPort, true);
+                ecb.AddComponent<Float3Port>(inputPort, float3.zero);
+                ecb.AppendToBuffer<InputPortReference>(node, inputPort);
+                ecb.SetName(inputPort, name);
+            }
+            else if (nodeType == NodeType.ForceSection || nodeType == NodeType.GeometricSection) {
+                var inputPort = ecb.CreateEntity();
+                name = "Input";
+                ecb.AddComponent<Name>(inputPort, name);
+                ecb.AddComponent<Port>(inputPort, PortType.Point);
+                ecb.AddComponent(inputPort, Uuid.Create());
+                ecb.AddComponent<Dirty>(inputPort, true);
+                ecb.AddComponent<PointPort>(inputPort, PointData.Create());
+                ecb.AppendToBuffer<InputPortReference>(node, inputPort);
+                ecb.SetName(inputPort, name);
+            }
 
             ecb.AddBuffer<OutputPortReference>(node);
             var outputPort = ecb.CreateEntity();
+            name = "Output";
+            ecb.AddComponent<Name>(outputPort, name);
+            ecb.AddComponent<Port>(outputPort, PortType.Point);
+            ecb.AddComponent(outputPort, Uuid.Create());
             ecb.AddComponent<Dirty>(outputPort);
-            uuid = (uint)Guid.NewGuid().GetHashCode();
-            ecb.AddComponent<Uuid>(outputPort, uuid);
-            ecb.AddComponent<PointPort>(outputPort, PointData.Default);
+            PointData outputData = PointData.Create();
+            ecb.AddComponent<PointPort>(outputPort, outputData);
             ecb.AppendToBuffer<OutputPortReference>(node, outputPort);
-            ecb.SetName(outputPort, "Output Port");
+            ecb.SetName(outputPort, name);
+
+            if (nodeType == NodeType.Anchor) {
+                ecb.AddComponent(node, new Anchor {
+                    Value = outputData,
+                });
+            }
+            else if (nodeType == NodeType.ForceSection || nodeType == NodeType.GeometricSection) {
+                SectionType sectionType = nodeType switch {
+                    NodeType.ForceSection => SectionType.Force,
+                    NodeType.GeometricSection => SectionType.Geometric,
+                    _ => throw new NotImplementedException("Only force and geometric sections are supported"),
+                };
+
+                ecb.AddComponent(node, new Section {
+                    DurationType = DurationType.Time,
+                    Duration = 1f,
+                    FixedVelocity = false,
+                });
+                ecb.AddBuffer<Point>(node);
+                ecb.AddBuffer<RollSpeedKeyframe>(node);
+
+                if (sectionType == SectionType.Force) {
+                    ecb.AddBuffer<NormalForceKeyframe>(node);
+                    ecb.AddBuffer<LateralForceKeyframe>(node);
+                }
+                else {
+                    ecb.AddBuffer<PitchSpeedKeyframe>(node);
+                    ecb.AddBuffer<YawSpeedKeyframe>(node);
+                }
+            }
 
             ecb.SetName(node, name);
 
@@ -214,32 +284,32 @@ namespace CoasterForge.UI {
             return node;
         }
 
-        private void OnAddNodeRequested(Vector2 position, SectionType sectionType) {
+        private void OnAddNodeRequested(Vector2 position, NodeType nodeType) {
             UndoManager.Record();
 
-            AddNode(position, sectionType);
+            AddNode(position, nodeType);
         }
 
-        private void OnAddConnectedNodeRequested(NodeGraphPort source, Vector2 position, SectionType sectionType) {
+        private void OnAddConnectedNodeRequested(NodeGraphPort source, Vector2 position, NodeType nodeType) {
             UndoManager.Record();
 
-            var node = AddNode(position, sectionType);
+            var node = AddNode(position, nodeType);
             Entity sourceEntity = Entity.Null;
             Entity targetEntity = Entity.Null;
-            if (source.IsInput) {
+            if (source.Data.IsInput) {
                 var outputs = SystemAPI.GetBuffer<OutputPortReference>(node);
                 if (outputs.Length != 1) {
                     throw new NotImplementedException("Only one output port is supported for inferred connections");
                 }
                 sourceEntity = outputs[0].Value;
-                targetEntity = source.Entity;
+                targetEntity = source.Data.Entity;
             }
             else {
                 var inputs = SystemAPI.GetBuffer<InputPortReference>(node);
                 if (inputs.Length != 1) {
                     throw new NotImplementedException("Only one input port is supported for inferred connections");
                 }
-                sourceEntity = source.Entity;
+                sourceEntity = source.Data.Entity;
                 targetEntity = inputs[0].Value;
             }
             AddConnection(sourceEntity, targetEntity);
@@ -315,7 +385,19 @@ namespace CoasterForge.UI {
         private void OnConnectionRequested(NodeGraphPort source, NodeGraphPort target) {
             UndoManager.Record();
 
-            AddConnection(source.Entity, target.Entity);
+            AddConnection(source.Data.Entity, target.Data.Entity);
+        }
+
+        private void OnAnchorChangeRequested(NodeGraphNode node, PointData data) {
+            var entity = node.Entity;
+            ref var anchor = ref SystemAPI.GetComponentRW<Anchor>(entity).ValueRW;
+            if (anchor.Value.Position.Equals(data.Position)) return;
+
+            UndoManager.Record();
+
+            ref var dirty = ref SystemAPI.GetComponentRW<Dirty>(entity).ValueRW;
+            anchor.Value = data;
+            dirty = true;
         }
 
         private string SerializeGraph() {
@@ -323,93 +405,130 @@ namespace CoasterForge.UI {
             var edges = new List<SerializedEdge>();
             foreach (var nodeEntity in _nodeMap.Keys) {
                 var name = SystemAPI.GetComponent<Name>(nodeEntity);
-                var section = SystemAPI.GetComponent<Section>(nodeEntity);
-                var position = SystemAPI.GetComponent<UIPosition>(nodeEntity);
-
-                DynamicBuffer<RollSpeedKeyframe>? rollSpeedKeyframeBuffer = null;
-                DynamicBuffer<NormalForceKeyframe>? normalForceKeyframeBuffer = null;
-                DynamicBuffer<LateralForceKeyframe>? lateralForceKeyframeBuffer = null;
-                DynamicBuffer<PitchSpeedKeyframe>? pitchSpeedKeyframeBuffer = null;
-                DynamicBuffer<YawSpeedKeyframe>? yawSpeedKeyframeBuffer = null;
-
-                rollSpeedKeyframeBuffer = SystemAPI.GetBuffer<RollSpeedKeyframe>(nodeEntity);
-
-                if (section.SectionType == SectionType.Force) {
-                    normalForceKeyframeBuffer = SystemAPI.GetBuffer<NormalForceKeyframe>(nodeEntity);
-                    lateralForceKeyframeBuffer = SystemAPI.GetBuffer<LateralForceKeyframe>(nodeEntity);
-                }
-                else {
-                    pitchSpeedKeyframeBuffer = SystemAPI.GetBuffer<PitchSpeedKeyframe>(nodeEntity);
-                    yawSpeedKeyframeBuffer = SystemAPI.GetBuffer<YawSpeedKeyframe>(nodeEntity);
-                }
+                NodeType type = SystemAPI.GetComponent<Node>(nodeEntity);
+                float2 position = SystemAPI.GetComponent<UIPosition>(nodeEntity);
 
                 var inputPortBuffer = SystemAPI.GetBuffer<InputPortReference>(nodeEntity);
                 var outputPortBuffer = SystemAPI.GetBuffer<OutputPortReference>(nodeEntity);
 
-                var rollSpeedKeyframes = new List<Keyframe>();
-                foreach (var keyframe in rollSpeedKeyframeBuffer) {
-                    rollSpeedKeyframes.Add(keyframe);
+                var inputPorts = new List<SerializedPort>();
+                foreach (var port in inputPortBuffer) {
+                    uint uuid = SystemAPI.GetComponent<Uuid>(port);
+                    string portName = SystemAPI.GetComponent<Name>(port);
+                    PortType portType = SystemAPI.GetComponent<Port>(port);
+                    PointData point = default;
+                    if (portType == PortType.Point) {
+                        point = SystemAPI.GetComponent<PointPort>(port);
+                    }
+                    else if (portType == PortType.Float3) {
+                        point.Position = SystemAPI.GetComponent<Float3Port>(port);
+                    }
+                    inputPorts.Add(new SerializedPort {
+                        Id = uuid,
+                        Name = portName,
+                        Type = portType,
+                        Data = point,
+                    });
                 }
 
-                var normalForceKeyframes = new List<Keyframe>();
+                var outputPorts = new List<SerializedPort>();
+                foreach (var port in outputPortBuffer) {
+                    uint uuid = SystemAPI.GetComponent<Uuid>(port);
+                    string portName = SystemAPI.GetComponent<Name>(port);
+                    PortType portType = SystemAPI.GetComponent<Port>(port);
+                    PointData point = default;
+                    if (portType == PortType.Point) {
+                        point = SystemAPI.GetComponent<PointPort>(port);
+                    }
+                    else if (portType == PortType.Float3) {
+                        point.Position = SystemAPI.GetComponent<Float3Port>(port);
+                    }
+                    outputPorts.Add(new SerializedPort {
+                        Id = uuid,
+                        Name = portName,
+                        Type = portType,
+                        Data = point,
+                    });
+                }
+
+                Anchor anchor = type switch {
+                    NodeType.Anchor => SystemAPI.GetComponent<Anchor>(nodeEntity),
+                    _ => default,
+                };
+
+                Section section = type switch {
+                    NodeType.ForceSection or NodeType.GeometricSection => SystemAPI.GetComponent<Section>(nodeEntity),
+                    _ => default,
+                };
+                DynamicBuffer<RollSpeedKeyframe>? rollSpeedKeyframeBuffer = type switch {
+                    NodeType.ForceSection or NodeType.GeometricSection => SystemAPI.GetBuffer<RollSpeedKeyframe>(nodeEntity),
+                    _ => null,
+                };
+                DynamicBuffer<NormalForceKeyframe>? normalForceKeyframeBuffer = type switch {
+                    NodeType.ForceSection => SystemAPI.GetBuffer<NormalForceKeyframe>(nodeEntity),
+                    _ => null,
+                };
+                DynamicBuffer<LateralForceKeyframe>? lateralForceKeyframeBuffer = type switch {
+                    NodeType.ForceSection => SystemAPI.GetBuffer<LateralForceKeyframe>(nodeEntity),
+                    _ => null,
+                };
+                DynamicBuffer<PitchSpeedKeyframe>? pitchSpeedKeyframeBuffer = type switch {
+                    NodeType.GeometricSection => SystemAPI.GetBuffer<PitchSpeedKeyframe>(nodeEntity),
+                    _ => null,
+                };
+                DynamicBuffer<YawSpeedKeyframe>? yawSpeedKeyframeBuffer = type switch {
+                    NodeType.GeometricSection => SystemAPI.GetBuffer<YawSpeedKeyframe>(nodeEntity),
+                    _ => null,
+                };
+
+                List<Keyframe> rollSpeedKeyframes = new();
+                if (rollSpeedKeyframeBuffer != null) {
+                    foreach (var keyframe in rollSpeedKeyframeBuffer) {
+                        rollSpeedKeyframes.Add(keyframe);
+                    }
+                }
+
+                List<Keyframe> normalForceKeyframes = new();
                 if (normalForceKeyframeBuffer != null) {
                     foreach (var keyframe in normalForceKeyframeBuffer) {
                         normalForceKeyframes.Add(keyframe);
                     }
                 }
 
-                var lateralForceKeyframes = new List<Keyframe>();
+                List<Keyframe> lateralForceKeyframes = new();
                 if (lateralForceKeyframeBuffer != null) {
                     foreach (var keyframe in lateralForceKeyframeBuffer) {
                         lateralForceKeyframes.Add(keyframe);
                     }
                 }
 
-                var pitchSpeedKeyframes = new List<Keyframe>();
+                List<Keyframe> pitchSpeedKeyframes = new();
                 if (pitchSpeedKeyframeBuffer != null) {
                     foreach (var keyframe in pitchSpeedKeyframeBuffer) {
                         pitchSpeedKeyframes.Add(keyframe);
                     }
                 }
 
-                var yawSpeedKeyframes = new List<Keyframe>();
+                List<Keyframe> yawSpeedKeyframes = new();
                 if (yawSpeedKeyframeBuffer != null) {
                     foreach (var keyframe in yawSpeedKeyframeBuffer) {
                         yawSpeedKeyframes.Add(keyframe);
                     }
                 }
 
-                var inputPorts = new List<SerializedPort>();
-                foreach (var port in inputPortBuffer) {
-                    var uuid = SystemAPI.GetComponent<Uuid>(port);
-                    var point = SystemAPI.GetComponent<PointPort>(port);
-                    inputPorts.Add(new SerializedPort {
-                        Id = uuid,
-                        Point = point,
-                    });
-                }
-
-                var outputPorts = new List<SerializedPort>();
-                foreach (var port in outputPortBuffer) {
-                    var uuid = SystemAPI.GetComponent<Uuid>(port);
-                    var point = SystemAPI.GetComponent<PointPort>(port);
-                    outputPorts.Add(new SerializedPort {
-                        Id = uuid,
-                        Point = point,
-                    });
-                }
-
                 nodes.Add(new SerializedNode {
                     Name = name,
-                    Section = section,
+                    Type = type,
                     Position = position,
+                    InputPorts = inputPorts,
+                    OutputPorts = outputPorts,
+                    Anchor = anchor,
+                    Section = section,
                     RollSpeedKeyframes = rollSpeedKeyframes,
                     NormalForceKeyframes = normalForceKeyframes,
                     LateralForceKeyframes = lateralForceKeyframes,
                     PitchSpeedKeyframes = pitchSpeedKeyframes,
                     YawSpeedKeyframes = yawSpeedKeyframes,
-                    InputPorts = inputPorts,
-                    OutputPorts = outputPorts,
                 });
             }
 
@@ -455,59 +574,79 @@ namespace CoasterForge.UI {
                 var entity = ecb.CreateEntity();
 
                 ecb.AddComponent(entity, node.Name);
-                ecb.AddComponent<Node>(entity);
-                ecb.AddComponent<Dirty>(entity);
-                ecb.AddBuffer<Point>(entity);
-
-                ecb.AddComponent(entity, node.Section);
+                ecb.AddComponent<Node>(entity, node.Type);
                 ecb.AddComponent(entity, node.Position);
-
-                ecb.AddBuffer<RollSpeedKeyframe>(entity);
-                foreach (var keyframe in node.RollSpeedKeyframes) {
-                    ecb.AppendToBuffer(entity, new RollSpeedKeyframe { Value = keyframe });
-                }
-
-                if (node.Section.SectionType == SectionType.Force) {
-                    ecb.AddBuffer<NormalForceKeyframe>(entity);
-                    foreach (var keyframe in node.NormalForceKeyframes) {
-                        ecb.AppendToBuffer(entity, new NormalForceKeyframe { Value = keyframe });
-                    }
-
-                    ecb.AddBuffer<LateralForceKeyframe>(entity);
-                    foreach (var keyframe in node.LateralForceKeyframes) {
-                        ecb.AppendToBuffer(entity, new LateralForceKeyframe { Value = keyframe });
-                    }
-                }
-                else {
-                    ecb.AddBuffer<PitchSpeedKeyframe>(entity);
-                    foreach (var keyframe in node.PitchSpeedKeyframes) {
-                        ecb.AppendToBuffer(entity, new PitchSpeedKeyframe { Value = keyframe });
-                    }
-
-                    ecb.AddBuffer<YawSpeedKeyframe>(entity);
-                    foreach (var keyframe in node.YawSpeedKeyframes) {
-                        ecb.AppendToBuffer(entity, new YawSpeedKeyframe { Value = keyframe });
-                    }
-                }
+                ecb.AddComponent<Dirty>(entity);
 
                 ecb.AddBuffer<InputPortReference>(entity);
                 foreach (var port in node.InputPorts) {
                     var portEntity = ecb.CreateEntity();
-                    ecb.AddComponent<Dirty>(portEntity, true);
+                    ecb.AddComponent<Port>(portEntity, port.Type);
+                    ecb.AddComponent<Name>(portEntity, port.Name);
                     ecb.AddComponent<Uuid>(portEntity, port.Id);
-                    ecb.AddComponent<PointPort>(portEntity, port.Point);
+                    ecb.AddComponent<Dirty>(portEntity, true);
+                    if (port.Type == PortType.Point) {
+                        ecb.AddComponent<PointPort>(portEntity, port.Data);
+                    }
+                    else if (port.Type == PortType.Float3) {
+                        ecb.AddComponent<Float3Port>(portEntity, port.Data.Position);
+                    }
                     ecb.AppendToBuffer<InputPortReference>(entity, portEntity);
-                    ecb.SetName(portEntity, "Input Port");
+                    ecb.SetName(portEntity, port.Name);
                 }
 
                 ecb.AddBuffer<OutputPortReference>(entity);
                 foreach (var port in node.OutputPorts) {
                     var portEntity = ecb.CreateEntity();
-                    ecb.AddComponent<Dirty>(portEntity);
+                    ecb.AddComponent<Port>(portEntity, port.Type);
+                    ecb.AddComponent<Name>(portEntity, port.Name);
                     ecb.AddComponent<Uuid>(portEntity, port.Id);
-                    ecb.AddComponent<PointPort>(portEntity, port.Point);
+                    ecb.AddComponent<Dirty>(portEntity);
+                    if (port.Type == PortType.Point) {
+                        ecb.AddComponent<PointPort>(portEntity, port.Data);
+                    }
+                    else if (port.Type == PortType.Float3) {
+                        ecb.AddComponent<Float3Port>(portEntity, port.Data.Position);
+                    }
                     ecb.AppendToBuffer<OutputPortReference>(entity, portEntity);
-                    ecb.SetName(portEntity, "Output Port");
+                    ecb.SetName(portEntity, port.Name);
+                }
+
+                if (node.Type == NodeType.Anchor) {
+                    ecb.AddComponent<Anchor>(entity, node.Anchor);
+                }
+
+                if (node.Type == NodeType.ForceSection || node.Type == NodeType.GeometricSection) {
+                    ecb.AddComponent(entity, node.Section);
+                    ecb.AddBuffer<Point>(entity);
+
+                    ecb.AddBuffer<RollSpeedKeyframe>(entity);
+                    foreach (var keyframe in node.RollSpeedKeyframes) {
+                        ecb.AppendToBuffer(entity, new RollSpeedKeyframe { Value = keyframe });
+                    }
+
+                    if (node.Type == NodeType.ForceSection) {
+                        ecb.AddBuffer<NormalForceKeyframe>(entity);
+                        foreach (var keyframe in node.NormalForceKeyframes) {
+                            ecb.AppendToBuffer(entity, new NormalForceKeyframe { Value = keyframe });
+                        }
+
+                        ecb.AddBuffer<LateralForceKeyframe>(entity);
+                        foreach (var keyframe in node.LateralForceKeyframes) {
+                            ecb.AppendToBuffer(entity, new LateralForceKeyframe { Value = keyframe });
+                        }
+                    }
+                    else if (node.Type == NodeType.GeometricSection) {
+                        ecb.AddBuffer<PitchSpeedKeyframe>(entity);
+                        foreach (var keyframe in node.PitchSpeedKeyframes) {
+                            ecb.AppendToBuffer(entity, new PitchSpeedKeyframe { Value = keyframe });
+                        }
+
+                        ecb.AddBuffer<YawSpeedKeyframe>(entity);
+                        foreach (var keyframe in node.YawSpeedKeyframes) {
+                            ecb.AppendToBuffer(entity, new YawSpeedKeyframe { Value = keyframe });
+                        }
+                    }
                 }
 
                 ecb.SetName(entity, node.Name);

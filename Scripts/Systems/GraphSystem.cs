@@ -8,6 +8,7 @@ namespace CoasterForge {
     public partial struct GraphSystem : ISystem {
         private EntityQuery _nodeQuery;
         private EntityQuery _connectionQuery;
+        private EntityQuery _anchorQuery;
 
         public void OnCreate(ref SystemState state) {
             _nodeQuery = new EntityQueryBuilder(Allocator.Temp)
@@ -16,14 +17,40 @@ namespace CoasterForge {
             _connectionQuery = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<Connection>()
                 .Build(state.EntityManager);
+            _anchorQuery = new EntityQueryBuilder(Allocator.Temp)
+                .WithAspect<NodeAspect>()
+                .WithAll<Anchor>()
+                .Build(state.EntityManager);
 
             state.RequireForUpdate(_nodeQuery);
         }
 
         [BurstCompile]
         public void OnUpdate(ref SystemState state) {
+            PropagateAnchors(ref state);
             PropagateInputPorts(ref state);
             PropagateConnections(ref state);
+        }
+
+        [BurstCompile]
+        private void PropagateAnchors(ref SystemState state) {
+            var anchors = _anchorQuery.ToEntityArray(Allocator.Temp);
+            foreach (var anchor in anchors) {
+                ref Dirty anchorDirty = ref SystemAPI.GetComponentRW<Dirty>(anchor).ValueRW;
+                if (!anchorDirty) continue;
+                anchorDirty = false;
+
+                PointData data = SystemAPI.GetComponent<Anchor>(anchor);
+
+                var outputPorts = SystemAPI.GetBuffer<OutputPortReference>(anchor);
+                foreach (var outputPort in outputPorts) {
+                    ref PointPort pointPort = ref SystemAPI.GetComponentRW<PointPort>(outputPort).ValueRW;
+                    ref Dirty outputPortDirty = ref SystemAPI.GetComponentRW<Dirty>(outputPort).ValueRW;
+                    pointPort = data;
+                    outputPortDirty = true;
+                }
+            }
+            anchors.Dispose();
         }
 
         [BurstCompile]

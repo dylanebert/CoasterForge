@@ -14,4 +14,15 @@ namespace CoasterForge {
         Linear,
         Ease,
     }
+
+    public enum NodeType {
+        ForceSection,
+        GeometricSection,
+        Anchor,
+    }
+
+    public enum PortType {
+        Point,
+        Float3,
+    }
 }

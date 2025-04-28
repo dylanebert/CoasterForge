@@ -6,13 +6,15 @@ using UnityEngine.UIElements;
 namespace CoasterForge.UI {
     public class NodeGraphNode : VisualElement {
         private static readonly Color s_DividerColor = new(0.2f, 0.2f, 0.2f);
-        private static readonly Color s_BackgroundColor = new(0.25f, 0.25f, 0.25f);
-        private static readonly Color s_HeaderColor = new(0.3f, 0.3f, 0.3f);
-        private static readonly Color s_HoverOutlineColor = new(0.2f, 0.5f, 0.9f, 0.5f);
+        private static readonly Color s_BackgroundColor = new(0.25f, 0.25f, 0.25f, 0.8f);
+        private static readonly Color s_HeaderColor = new(0.3f, 0.3f, 0.3f, 0.8f);
+
+        private static readonly Color s_HoverOutlineColor = new(0.2f, 0.5f, 0.9f, 0.3f);
         private static readonly Color s_SelectedOutlineColor = new(0.2f, 0.5f, 0.9f);
 
         private NodeGraphView _view;
         private Entity _entity;
+        private NodeType _type;
 
         private List<NodeGraphPort> _inputs = new();
         private List<NodeGraphPort> _outputs = new();
@@ -32,6 +34,7 @@ namespace CoasterForge.UI {
         private bool _moved;
         private bool _mouseCaptured;
 
+        public NodeGraphView View => _view;
         public Entity Entity => _entity;
         public List<NodeGraphPort> Inputs => _inputs;
         public List<NodeGraphPort> Outputs => _outputs;
@@ -53,14 +56,16 @@ namespace CoasterForge.UI {
             NodeGraphView view,
             string name,
             Entity entity,
-            DynamicBuffer<InputPortReference> inputPorts,
-            DynamicBuffer<OutputPortReference> outputPorts
+            NodeType type,
+            List<PortData> inputPorts,
+            List<PortData> outputPorts
         ) {
             _view = view;
             _entity = entity;
+            _type = type;
 
             style.position = Position.Absolute;
-            style.backgroundColor = s_DividerColor;
+            style.backgroundColor = Color.clear;
             style.flexGrow = 1f;
             style.flexDirection = FlexDirection.Column;
             style.alignItems = Align.Stretch;
@@ -138,6 +143,7 @@ namespace CoasterForge.UI {
                     flexGrow = 1f,
                     flexDirection = FlexDirection.Row,
                     alignItems = Align.Stretch,
+                    justifyContent = Justify.FlexEnd,
                     marginLeft = 0f,
                     marginRight = 0f,
                     marginTop = 0f,
@@ -223,7 +229,9 @@ namespace CoasterForge.UI {
             _footer = new VisualElement {
                 style = {
                     position = Position.Relative,
-                    height = 12f,
+                    flexDirection = FlexDirection.Column,
+                    alignItems = Align.Stretch,
+                    minHeight = 12f,
                     paddingLeft = 0f,
                     paddingRight = 0f,
                     paddingTop = 0f,
@@ -249,25 +257,27 @@ namespace CoasterForge.UI {
             RegisterCallback<MouseUpEvent>(OnMouseUp);
         }
 
-        private void UpdateInputPorts(DynamicBuffer<InputPortReference> inputPorts) {
+        private void UpdateInputPorts(List<PortData> inputPorts) {
             _inputs.Clear();
             _inputsContainer.Clear();
 
-            for (int i = 0; i < inputPorts.Length; i++) {
-                var port = new NodeGraphPort(_view, this, inputPorts[i], true);
-                _inputsContainer.Add(port);
-                _inputs.Add(port);
+            for (int i = 0; i < inputPorts.Count; i++) {
+                var port = inputPorts[i];
+                var uiPort = new NodeGraphPort(_view, this, port, port.Name.ToString());
+                _inputsContainer.Add(uiPort);
+                _inputs.Add(uiPort);
             }
         }
 
-        private void UpdateOutputPorts(DynamicBuffer<OutputPortReference> outputPorts) {
+        private void UpdateOutputPorts(List<PortData> outputPorts) {
             _outputs.Clear();
             _outputsContainer.Clear();
 
-            for (int i = 0; i < outputPorts.Length; i++) {
-                var port = new NodeGraphPort(_view, this, outputPorts[i], false);
-                _outputsContainer.Add(port);
-                _outputs.Add(port);
+            for (int i = 0; i < outputPorts.Count; i++) {
+                var port = outputPorts[i];
+                var uiPort = new NodeGraphPort(_view, this, port, port.Name.ToString());
+                _outputsContainer.Add(uiPort);
+                _outputs.Add(uiPort);
             }
         }
 
@@ -389,6 +399,15 @@ namespace CoasterForge.UI {
         public void SetPosition(Vector2 position) {
             style.left = position.x;
             style.top = position.y;
+        }
+
+        public void SetAnchor(PointData anchor) {
+            if (_type != NodeType.Anchor) {
+                Debug.LogError("SetAnchor called on non-anchor node");
+                return;
+            }
+
+            _inputs[0].SetData(anchor);
         }
     }
 }

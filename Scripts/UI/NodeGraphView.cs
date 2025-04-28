@@ -46,11 +46,12 @@ namespace CoasterForge.UI {
         public float Zoom => _zoom;
         public bool BoxSelecting => _boxSelecting;
 
-        public event Action<Vector2, SectionType> AddNodeRequested;
-        public event Action<NodeGraphPort, Vector2, SectionType> AddConnectedNodeRequested;
+        public event Action<Vector2, NodeType> AddNodeRequested;
+        public event Action<NodeGraphPort, Vector2, NodeType> AddConnectedNodeRequested;
         public event Action RemoveSelectedRequested;
         public event Action<List<NodeGraphNode>, float2> MoveNodesRequested;
         public event Action<NodeGraphPort, NodeGraphPort> ConnectionRequested;
+        public event Action<NodeGraphNode, PointData> AnchorChangeRequested;
 
         public NodeGraphView() {
             style.position = Position.Absolute;
@@ -170,11 +171,12 @@ namespace CoasterForge.UI {
         public NodeGraphNode AddNode(
             string name,
             Entity entity,
+            NodeType type,
             Vector2 position,
-            DynamicBuffer<InputPortReference> inputPorts,
-            DynamicBuffer<OutputPortReference> outputPorts
+            List<PortData> inputPorts,
+            List<PortData> outputPorts
         ) {
-            var node = new NodeGraphNode(this, name, entity, inputPorts, outputPorts);
+            var node = new NodeGraphNode(this, name, entity, type, inputPorts, outputPorts);
             Vector2 contentPosition = (position - _offset) / _zoom;
             node.style.left = contentPosition.x;
             node.style.top = contentPosition.y;
@@ -346,10 +348,13 @@ namespace CoasterForge.UI {
                 Vector2 contentPosition = (position - _offset) / _zoom;
                 this.ShowContextMenu(position, menu => {
                     menu.AddItem("Add Force Section", () => {
-                        AddNodeRequested?.Invoke(contentPosition, SectionType.Force);
+                        AddNodeRequested?.Invoke(contentPosition, NodeType.ForceSection);
                     });
                     menu.AddItem("Add Geometric Section", () => {
-                        AddNodeRequested?.Invoke(contentPosition, SectionType.Geometric);
+                        AddNodeRequested?.Invoke(contentPosition, NodeType.GeometricSection);
+                    });
+                    menu.AddItem("Add Anchor", () => {
+                        AddNodeRequested?.Invoke(contentPosition, NodeType.Anchor);
                     });
                 });
             }
@@ -533,8 +538,8 @@ namespace CoasterForge.UI {
             _snapY = false;
         }
 
-        public void InvokeAddConnectedNodeRequest(NodeGraphPort source, Vector2 position, SectionType sectionType) {
-            AddConnectedNodeRequested?.Invoke(source, position, sectionType);
+        public void InvokeAddConnectedNodeRequest(NodeGraphPort source, Vector2 position, NodeType nodeType) {
+            AddConnectedNodeRequested?.Invoke(source, position, nodeType);
         }
 
         public void InvokeRemoveSelectedRequest() {
@@ -547,6 +552,10 @@ namespace CoasterForge.UI {
 
         public void InvokeConnectionRequest(NodeGraphPort source, NodeGraphPort target) {
             ConnectionRequested?.Invoke(source, target);
+        }
+
+        public void InvokeAnchorChangeRequest(NodeGraphNode node, PointData data) {
+            AnchorChangeRequested?.Invoke(node, data);
         }
     }
 }
