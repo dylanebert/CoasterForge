@@ -112,6 +112,10 @@ namespace CoasterForge {
             public float2 UV;
         }
 
+        public static float ComputeEnergy(this PointData p) {
+            return 0.5f * p.Velocity * p.Velocity + G * p.GetHeartPosition(CENTER).y;
+        }
+
         public static float GetPitch(this PointData p) {
             float magnitude = math.sqrt(p.Direction.x * p.Direction.x + p.Direction.z * p.Direction.z);
             return math.degrees(math.atan2(p.Direction.y, magnitude));

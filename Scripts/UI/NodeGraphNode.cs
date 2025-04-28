@@ -250,8 +250,8 @@ namespace CoasterForge.UI {
 
             _view.RegisterCallback<MouseCaptureEvent>(OnMouseCapture, TrickleDown.TrickleDown);
             _view.RegisterCallback<MouseCaptureOutEvent>(OnMouseCaptureOut, TrickleDown.TrickleDown);
-            RegisterCallback<MouseEnterEvent>(OnMouseEnter);
-            RegisterCallback<MouseLeaveEvent>(OnMouseLeave);
+            RegisterCallback<MouseOverEvent>(OnMouseOver);
+            RegisterCallback<MouseOutEvent>(OnMouseOut);
             RegisterCallback<MouseDownEvent>(OnMouseDown);
             RegisterCallback<MouseMoveEvent>(OnMouseMove);
             RegisterCallback<MouseUpEvent>(OnMouseUp);
@@ -263,7 +263,7 @@ namespace CoasterForge.UI {
 
             for (int i = 0; i < inputPorts.Count; i++) {
                 var port = inputPorts[i];
-                var uiPort = new NodeGraphPort(_view, this, port, port.Name.ToString());
+                var uiPort = new NodeGraphPort(_view, this, port);
                 _inputsContainer.Add(uiPort);
                 _inputs.Add(uiPort);
             }
@@ -275,7 +275,7 @@ namespace CoasterForge.UI {
 
             for (int i = 0; i < outputPorts.Count; i++) {
                 var port = outputPorts[i];
-                var uiPort = new NodeGraphPort(_view, this, port, port.Name.ToString());
+                var uiPort = new NodeGraphPort(_view, this, port);
                 _outputsContainer.Add(uiPort);
                 _outputs.Add(uiPort);
             }
@@ -298,7 +298,7 @@ namespace CoasterForge.UI {
 
         private void OnMouseCapture(MouseCaptureEvent evt) {
             if (evt.relatedTarget != this) {
-                OnMouseLeave(null);
+                OnMouseOut(null);
                 _mouseCaptured = true;
             }
         }
@@ -309,7 +309,7 @@ namespace CoasterForge.UI {
             }
         }
 
-        private void OnMouseEnter(MouseEnterEvent evt) {
+        private void OnMouseOver(MouseOverEvent evt) {
             if (_view.BoxSelecting || _mouseCaptured) return;
             _hovering = true;
             if (!_selected) {
@@ -317,7 +317,7 @@ namespace CoasterForge.UI {
             }
         }
 
-        private void OnMouseLeave(MouseLeaveEvent evt) {
+        private void OnMouseOut(MouseOutEvent evt) {
             if (_view.BoxSelecting || _mouseCaptured) return;
             _hovering = false;
             if (!_selected) {

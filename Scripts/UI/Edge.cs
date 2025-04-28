@@ -155,7 +155,7 @@ namespace CoasterForge.UI {
             float dist = Mathf.Abs(_end.x - _start.x);
             float maxWidth = dist * 0.5f;
             float width = Mathf.Min(maxWidth, 50f);
-            float dx = _source.Data.IsInput ? -width : width;
+            float dx = _source.IsInput ? -width : width;
             Vector2 control1 = _start + new Vector2(dx, 0f);
             Vector2 control2 = _end - new Vector2(dx, 0f);
 

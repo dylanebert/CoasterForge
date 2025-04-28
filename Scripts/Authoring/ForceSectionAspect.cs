@@ -4,7 +4,10 @@ namespace CoasterForge {
     public readonly partial struct ForceSectionAspect : IAspect {
         public readonly Entity Self;
 
-        private readonly RefRW<Section> SectionRW;
+        private readonly RefRO<Anchor> AnchorRO;
+
+        private readonly RefRW<Duration> DurationRW;
+        private readonly RefRW<FixedVelocity> FixedVelocityRW;
         private readonly RefRW<Dirty> DirtyRW;
 
         public readonly DynamicBuffer<Point> Points;
@@ -16,19 +19,21 @@ namespace CoasterForge {
         public readonly DynamicBuffer<NormalForceKeyframe> NormalForceKeyframes;
         public readonly DynamicBuffer<LateralForceKeyframe> LateralForceKeyframes;
 
+        public PointData Anchor => AnchorRO.ValueRO;
+
         public DurationType DurationType {
-            get => SectionRW.ValueRO.DurationType;
-            set => SectionRW.ValueRW.DurationType = value;
+            get => DurationRW.ValueRO.Type;
+            set => DurationRW.ValueRW.Type = value;
         }
 
         public float Duration {
-            get => SectionRW.ValueRO.Duration;
-            set => SectionRW.ValueRW.Duration = value;
+            get => DurationRW.ValueRO.Value;
+            set => DurationRW.ValueRW.Value = value;
         }
 
         public bool FixedVelocity {
-            get => SectionRW.ValueRO.FixedVelocity;
-            set => SectionRW.ValueRW.FixedVelocity = value;
+            get => FixedVelocityRW.ValueRO.Value;
+            set => FixedVelocityRW.ValueRW.Value = value;
         }
 
         public bool Dirty {

@@ -22,7 +22,7 @@ namespace CoasterForge {
     }
 
     public enum PortType {
-        Point,
-        Float3,
+        Anchor,
+        Position,
     }
 }

@@ -1,6 +1,7 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Mathematics;
 
 namespace CoasterForge {
     [UpdateInGroup(typeof(InitializationSystemGroup))]
@@ -8,7 +9,6 @@ namespace CoasterForge {
     public partial struct GraphSystem : ISystem {
         private EntityQuery _nodeQuery;
         private EntityQuery _connectionQuery;
-        private EntityQuery _anchorQuery;
 
         public void OnCreate(ref SystemState state) {
             _nodeQuery = new EntityQueryBuilder(Allocator.Temp)
@@ -16,10 +16,6 @@ namespace CoasterForge {
                 .Build(state.EntityManager);
             _connectionQuery = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<Connection>()
-                .Build(state.EntityManager);
-            _anchorQuery = new EntityQueryBuilder(Allocator.Temp)
-                .WithAspect<NodeAspect>()
-                .WithAll<Anchor>()
                 .Build(state.EntityManager);
 
             state.RequireForUpdate(_nodeQuery);
@@ -34,23 +30,21 @@ namespace CoasterForge {
 
         [BurstCompile]
         private void PropagateAnchors(ref SystemState state) {
-            var anchors = _anchorQuery.ToEntityArray(Allocator.Temp);
-            foreach (var anchor in anchors) {
-                ref Dirty anchorDirty = ref SystemAPI.GetComponentRW<Dirty>(anchor).ValueRW;
-                if (!anchorDirty) continue;
-                anchorDirty = false;
+            var nodes = _nodeQuery.ToEntityArray(Allocator.Temp);
+            foreach (var nodeEntity in nodes) {
+                var node = SystemAPI.GetAspect<NodeAspect>(nodeEntity);
+                if (node.Type != NodeType.Anchor || !node.Dirty) continue;
 
-                PointData data = SystemAPI.GetComponent<Anchor>(anchor);
+                var outputPort = SystemAPI.GetBuffer<OutputPortReference>(nodeEntity)[0];
+                ref Dirty dirty = ref SystemAPI.GetComponentRW<Dirty>(outputPort).ValueRW;
 
-                var outputPorts = SystemAPI.GetBuffer<OutputPortReference>(anchor);
-                foreach (var outputPort in outputPorts) {
-                    ref PointPort pointPort = ref SystemAPI.GetComponentRW<PointPort>(outputPort).ValueRW;
-                    ref Dirty outputPortDirty = ref SystemAPI.GetComponentRW<Dirty>(outputPort).ValueRW;
-                    pointPort = data;
-                    outputPortDirty = true;
-                }
+                ref AnchorPort port = ref SystemAPI.GetComponentRW<AnchorPort>(outputPort).ValueRW;
+                port.Value = SystemAPI.GetComponent<Anchor>(nodeEntity);
+
+                node.Dirty = false;
+                dirty = true;
             }
-            anchors.Dispose();
+            nodes.Dispose();
         }
 
         [BurstCompile]
@@ -59,9 +53,21 @@ namespace CoasterForge {
             foreach (var nodeEntity in nodes) {
                 var node = SystemAPI.GetAspect<NodeAspect>(nodeEntity);
 
-                foreach (var inputPort in node.InputPorts) {
+                for (int i = 0; i < node.InputPorts.Length; i++) {
+                    var inputPort = node.InputPorts[i];
                     ref Dirty inputPortDirty = ref SystemAPI.GetComponentRW<Dirty>(inputPort).ValueRW;
                     if (!inputPortDirty) continue;
+                    PortType type = SystemAPI.GetComponent<Port>(inputPort);
+                    ref Anchor anchor = ref SystemAPI.GetComponentRW<Anchor>(nodeEntity).ValueRW;
+
+                    if (type == PortType.Anchor) {
+                        anchor.Value = SystemAPI.GetComponent<AnchorPort>(inputPort);
+                    }
+                    else if (type == PortType.Position) {
+                        float3 position = SystemAPI.GetComponent<PositionPort>(inputPort);
+                        anchor.Value.SetPosition(position);
+                    }
+
                     inputPortDirty = false;
                     node.Dirty = true;
                 }
@@ -101,9 +107,9 @@ namespace CoasterForge {
         private void PropagateConnection(ref SystemState state, Entity sourcePort, Entity targetPort) {
             ref Dirty targetPortDirty = ref SystemAPI.GetComponentRW<Dirty>(targetPort).ValueRW;
 
-            if (SystemAPI.HasComponent<PointPort>(sourcePort) && SystemAPI.HasComponent<PointPort>(targetPort)) {
-                PointPort sourcePointPort = SystemAPI.GetComponent<PointPort>(sourcePort);
-                ref PointPort targetPointPort = ref SystemAPI.GetComponentRW<PointPort>(targetPort).ValueRW;
+            if (SystemAPI.HasComponent<AnchorPort>(sourcePort) && SystemAPI.HasComponent<AnchorPort>(targetPort)) {
+                AnchorPort sourcePointPort = SystemAPI.GetComponent<AnchorPort>(sourcePort);
+                ref AnchorPort targetPointPort = ref SystemAPI.GetComponentRW<AnchorPort>(targetPort).ValueRW;
                 targetPointPort.Value = sourcePointPort.Value;
             }
             else {

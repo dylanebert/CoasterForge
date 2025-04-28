@@ -7,10 +7,10 @@ using static CoasterForge.Constants;
 namespace CoasterForge {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial struct BuildGeometricSectionSystem : ISystem {
-        private ComponentLookup<PointPort> _pointPortLookup;
+        private ComponentLookup<AnchorPort> _pointPortLookup;
 
         public void OnCreate(ref SystemState state) {
-            _pointPortLookup = SystemAPI.GetComponentLookup<PointPort>(true);
+            _pointPortLookup = SystemAPI.GetComponentLookup<AnchorPort>(true);
         }
 
         public void OnUpdate(ref SystemState state) {
@@ -30,21 +30,13 @@ namespace CoasterForge {
             public EntityCommandBuffer.ParallelWriter Ecb;
 
             [ReadOnly]
-            public ComponentLookup<PointPort> PointPortLookup;
+            public ComponentLookup<AnchorPort> PointPortLookup;
 
             public void Execute([ChunkIndexInQuery] int chunkIndex, Entity entity, GeometricSectionAspect section) {
                 if (!section.Dirty) return;
 
                 section.Points.Clear();
-
-                PointData anchor = PointData.Create();
-                if (section.InputPorts.Length > 0 && PointPortLookup.TryGetComponent(section.InputPorts[0], out var inputPort)) {
-                    anchor = inputPort.Value;
-                }
-                else {
-                    UnityEngine.Debug.LogWarning("BuildGeometricSectionSystem: No input port found");
-                }
-                section.Points.Add(anchor);
+                section.Points.Add(section.Anchor);
 
                 if (section.DurationType == DurationType.Time) {
                     BuildGeometricTimeSection(section);

@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace CoasterForge.UI {
-    public class PortInputView : VisualElement {
+    public class InputThumb : VisualElement {
         private static readonly Color s_BackgroundColor = new(0.25f, 0.25f, 0.25f);
         private static readonly Color s_PortColor = new(0.8f, 0.7f, 0.2f);
         private static readonly Color s_CircleBackgroundColor = new(0.2f, 0.2f, 0.2f);
@@ -16,7 +16,9 @@ namespace CoasterForge.UI {
         private float _lastX, _lastY, _lastZ;
         private bool _editing;
 
-        public PortInputView(NodeGraphPort port) {
+        public NodeGraphPort Port => _port;
+
+        public InputThumb(NodeGraphPort port) {
             _port = port;
 
             style.position = Position.Absolute;
@@ -33,7 +35,7 @@ namespace CoasterForge.UI {
             style.marginBottom = 0f;
             style.backgroundColor = s_BackgroundColor;
 
-            if (_port.Data.Type == PortType.Point) {
+            if (_port.Type == PortType.Anchor) {
                 var container = new VisualElement {
                     style = {
                         position = Position.Relative,
@@ -53,7 +55,7 @@ namespace CoasterForge.UI {
                 container.Add(new Label("Anchor"));
                 Add(container);
             }
-            else if (_port.Data.Type == PortType.Float3) {
+            else if (_port.Type == PortType.Position) {
                 var container = new VisualElement {
                     style = {
                         position = Position.Relative,
@@ -203,20 +205,29 @@ namespace CoasterForge.UI {
             _edge = new InputViewEdge(_port.Connector);
             cap.Add(_edge);
 
+            if (_port.Type == PortType.Anchor) {
+                Add(new AnchorThumbControl(this));
+            }
+
             RegisterCallback<GeometryChangedEvent>(OnGeometryChanged);
-            RegisterCallback<MouseEnterEvent>(OnMouseEnter);
-            RegisterCallback<MouseLeaveEvent>(OnMouseLeave);
+            RegisterCallback<MouseOverEvent>(OnMouseOver);
+            RegisterCallback<MouseOutEvent>(OnMouseOut);
+            RegisterCallback<MouseDownEvent>(OnMouseDown);
         }
 
         private void OnGeometryChanged(GeometryChangedEvent evt) {
             style.right = _port.resolvedStyle.width * 0.5f;
         }
 
-        private void OnMouseEnter(MouseEnterEvent evt) {
+        private void OnMouseOver(MouseOverEvent evt) {
             evt.StopPropagation();
         }
 
-        private void OnMouseLeave(MouseLeaveEvent evt) {
+        private void OnMouseOut(MouseOutEvent evt) {
+            evt.StopPropagation();
+        }
+
+        private void OnMouseDown(MouseDownEvent evt) {
             evt.StopPropagation();
         }
 
@@ -230,8 +241,9 @@ namespace CoasterForge.UI {
 
                 if (_xField.value != _lastX || _yField.value != _lastY || _zField.value != _lastZ) {
                     PointData data = PointData.Create();
-                    data.Position = new float3(_xField.value, _yField.value, _zField.value);
-                    _port.Node.View.InvokeAnchorChangeRequest(_port.Node, data);
+                    float3 position = new(_xField.value, _yField.value, _zField.value);
+                    data.SetPosition(position);
+                    _port.Node.View.InvokePortChangeRequest(_port, data);
 
                     _lastX = _xField.value;
                     _lastY = _yField.value;

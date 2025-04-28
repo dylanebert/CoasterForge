@@ -8,7 +8,7 @@ namespace CoasterForge {
 
         protected override void OnCreate() {
             _query = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<Section>()
+                .WithAll<Duration>()
                 .WithNone<HasMeshDataTag>()
                 .Build(EntityManager);
 
@@ -25,6 +25,7 @@ namespace CoasterForge {
                     Entity = section
                 });
                 ecb.AddComponent<HasMeshDataTag>(section);
+                ecb.SetName(meshDataEntity, "MeshData");
             }
 
             ecb.Playback(EntityManager);

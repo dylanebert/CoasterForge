@@ -1,6 +1,5 @@
 using System.Text;
 using Unity.Mathematics;
-using static CoasterForge.Constants;
 
 namespace CoasterForge {
     [System.Serializable]
@@ -49,9 +48,13 @@ namespace CoasterForge {
                 TotalHeartLength = 0f,
                 TieDistance = 0f,
             };
-            point.Energy = 0.5f * point.Velocity * point.Velocity
-                + G * point.GetHeartPosition(CENTER).y;
+            point.Energy = point.ComputeEnergy();
             return point;
+        }
+
+        public void SetPosition(float3 position) {
+            Position = position;
+            Energy = this.ComputeEnergy();
         }
 
         public override string ToString() {

@@ -18,6 +18,7 @@ namespace CoasterForge {
             set => DirtyRW.ValueRW.Value = value;
         }
 
+        public NodeType Type => NodeRO.ValueRO;
         public FixedString64Bytes Name => NameRO.ValueRO;
         public Node Node => NodeRO.ValueRO;
     }
