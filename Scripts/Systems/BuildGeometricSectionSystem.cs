@@ -75,11 +75,17 @@ namespace CoasterForge {
 
                     UpdateGeometricPoint(section, ref curr, ref prev, deltaRoll, deltaPitch, deltaYaw);
                     section.Points.Add(curr);
+
+                    if (curr.Velocity < EPSILON) {
+                        UnityEngine.Debug.LogWarning("Velocity is too low");
+                        break;
+                    }
                 }
             }
 
             private void BuildGeometricDistanceSection(GeometricSectionAspect section) {
-                while (section.Points[^1].Value.TotalLength < section.Duration) {
+                float endLength = section.Points[0].Value.TotalLength + section.Duration;
+                while (section.Points[^1].Value.TotalLength < endLength) {
                     PointData prev = section.Points[^1];
                     PointData curr = prev;
 
@@ -95,6 +101,11 @@ namespace CoasterForge {
 
                     UpdateGeometricPoint(section, ref curr, ref prev, deltaRoll, deltaPitch, deltaYaw);
                     section.Points.Add(curr);
+
+                    if (curr.Velocity < EPSILON) {
+                        UnityEngine.Debug.LogWarning("Velocity is too low");
+                        break;
+                    }
                 }
             }
 

@@ -53,6 +53,7 @@ namespace CoasterForge.UI {
         public event Action<NodeGraphPort, NodeGraphPort> ConnectionRequested;
         public event Action<NodeGraphPort, object> PortChangeRequested;
         public event Action<NodeGraphPort> PromoteRequested;
+        public event Action<NodeGraphNode, DurationType> DurationTypeChangeRequested;
 
         public NodeGraphView() {
             style.position = Position.Absolute;
@@ -563,6 +564,10 @@ namespace CoasterForge.UI {
 
         public void InvokePromoteRequest(NodeGraphPort port) {
             PromoteRequested?.Invoke(port);
+        }
+
+        public void InvokeDurationTypeChangeRequest(NodeGraphNode node, DurationType durationType) {
+            DurationTypeChangeRequested?.Invoke(node, durationType);
         }
     }
 }

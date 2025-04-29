@@ -1,5 +1,6 @@
 using System.Text;
 using Unity.Mathematics;
+using static CoasterForge.Constants;
 
 namespace CoasterForge {
     [System.Serializable]
@@ -54,6 +55,60 @@ namespace CoasterForge {
 
         public void SetPosition(float3 position) {
             Position = position;
+            Energy = this.ComputeEnergy();
+        }
+
+        public void SetRoll(float degrees) {
+            Roll = degrees;
+            float currentPitch = this.GetPitch();
+            float currentYaw = this.GetYaw();
+
+            Direction = math.normalize(math.mul(
+                quaternion.Euler(math.radians(currentPitch), math.radians(currentYaw), 0f),
+                math.back()
+            ));
+            Lateral = math.mul(quaternion.Euler(0f, math.radians(currentYaw), 0f), math.right());
+
+            quaternion rollQuat = quaternion.AxisAngle(Direction, math.radians(-degrees));
+            Lateral = math.normalize(math.mul(rollQuat, Lateral));
+            Normal = math.normalize(math.cross(Direction, Lateral));
+
+            Energy = this.ComputeEnergy();
+        }
+
+        public void SetPitch(float degrees) {
+            float currentYaw = this.GetYaw();
+
+            Direction = math.normalize(math.mul(
+                quaternion.Euler(math.radians(degrees), math.radians(currentYaw), 0f),
+                math.back()
+            ));
+
+            Lateral = math.mul(quaternion.Euler(0f, math.radians(currentYaw), 0f), math.right());
+            Normal = math.normalize(math.cross(Direction, Lateral));
+
+            SetRoll(Roll);
+        }
+
+        public void SetYaw(float degrees) {
+            float currentPitch = this.GetPitch();
+
+            Direction = math.normalize(math.mul(
+                quaternion.Euler(math.radians(currentPitch), math.radians(degrees), 0f),
+                math.back()
+            ));
+
+            Lateral = math.mul(quaternion.Euler(0f, math.radians(degrees), 0f), math.right());
+            Normal = math.normalize(math.cross(Direction, Lateral));
+
+            SetRoll(Roll);
+        }
+
+        public void SetVelocity(float velocity) {
+            if (velocity < EPSILON) {
+                velocity = EPSILON;
+            }
+            Velocity = velocity;
             Energy = this.ComputeEnergy();
         }
 

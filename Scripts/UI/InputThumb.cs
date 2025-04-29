@@ -26,7 +26,7 @@ namespace CoasterForge.UI {
             style.position = Position.Absolute;
             style.flexDirection = FlexDirection.Row;
             style.alignItems = Align.Stretch;
-            style.height = 21f;
+            style.height = 18f;
             style.right = 0f;
             style.paddingLeft = 0f;
             style.paddingRight = 0f;
@@ -40,19 +40,19 @@ namespace CoasterForge.UI {
 
             var container = new VisualElement {
                 style = {
-                        position = Position.Relative,
-                        flexDirection = FlexDirection.Row,
-                        alignItems = Align.Center,
-                        paddingLeft = 8f,
-                        paddingRight = 0f,
-                        paddingTop = 0f,
-                        paddingBottom = 0f,
-                        marginLeft = 0f,
-                        marginRight = 0f,
-                        marginTop = 0f,
-                        marginBottom = 0f,
-                        backgroundColor = Color.clear
-                    }
+                    position = Position.Relative,
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    paddingLeft = 8f,
+                    paddingRight = 0f,
+                    paddingTop = 0f,
+                    paddingBottom = 0f,
+                    marginLeft = 0f,
+                    marginRight = 0f,
+                    marginTop = 0f,
+                    marginBottom = 0f,
+                    backgroundColor = Color.clear
+                }
             };
             Add(container);
 
@@ -68,10 +68,34 @@ namespace CoasterForge.UI {
                 container.Add(_fieldB);
                 container.Add(_fieldC);
             }
-            else if (_port.Type == PortType.Duration) {
-                _fieldA = new LabeledFloatField(this, "X");
+            else if (_port.Type == PortType.Duration
+                || _port.Type == PortType.Roll
+                || _port.Type == PortType.Pitch
+                || _port.Type == PortType.Yaw
+                || _port.Type == PortType.Velocity) {
+                float sensitivity = _port.Type switch {
+                    PortType.Roll or PortType.Pitch or PortType.Yaw => 0.1f,
+                    _ => 0.01f
+                };
+                float min = _port.Type switch {
+                    PortType.Roll or PortType.Yaw => -180f,
+                    PortType.Pitch => -90f,
+                    PortType.Duration => 0f,
+                    PortType.Velocity => 0.01f,
+                    _ => float.MinValue
+                };
+                float max = _port.Type switch {
+                    PortType.Roll or PortType.Yaw => 180f,
+                    PortType.Pitch => 90f,
+                    _ => float.MaxValue
+                };
+
+                _fieldA = new LabeledFloatField(this, "X", sensitivity, min, max);
 
                 container.Add(_fieldA);
+            }
+            else {
+                throw new System.NotImplementedException();
             }
 
             var connector = new VisualElement {
@@ -167,6 +191,10 @@ namespace CoasterForge.UI {
         private void OnValueChanged(ChangeEvent<float> evt) {
             if (_locked) return;
 
+            _fieldA?.Clamp();
+            _fieldB?.Clamp();
+            _fieldC?.Clamp();
+
             bool changed = (_fieldA != null && _fieldA.Field.value != _lastA)
                 || (_fieldB != null && _fieldB.Field.value != _lastB)
                 || (_fieldC != null && _fieldC.Field.value != _lastC);
@@ -184,9 +212,15 @@ namespace CoasterForge.UI {
                     _port.Node.View.InvokePortChangeRequest(_port, position);
                     break;
                 case PortType.Duration:
-                    float duration = _fieldA.Field.value;
-                    _port.Node.View.InvokePortChangeRequest(_port, duration);
+                case PortType.Roll:
+                case PortType.Pitch:
+                case PortType.Yaw:
+                case PortType.Velocity:
+                    float value = _fieldA.Field.value;
+                    _port.Node.View.InvokePortChangeRequest(_port, value);
                     break;
+                default:
+                    throw new System.NotImplementedException();
             }
 
             _lastA = _fieldA?.Field.value ?? 0f;
@@ -200,6 +234,9 @@ namespace CoasterForge.UI {
             _locked = true;
 
             switch (_port.Type) {
+                case PortType.Anchor:
+                    _locked = false;
+                    return;
                 case PortType.Position:
                     float3 position = (float3)data;
                     _lastA = position.x;
@@ -210,10 +247,16 @@ namespace CoasterForge.UI {
                     _fieldC.Field.value = position.z;
                     break;
                 case PortType.Duration:
-                    float duration = (float)data;
-                    _lastA = duration;
-                    _fieldA.Field.value = duration;
+                case PortType.Roll:
+                case PortType.Pitch:
+                case PortType.Yaw:
+                case PortType.Velocity:
+                    float value = (float)data;
+                    _lastA = value;
+                    _fieldA.Field.value = value;
                     break;
+                default:
+                    throw new System.NotImplementedException();
             }
 
             _locked = false;

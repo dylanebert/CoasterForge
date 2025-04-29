@@ -63,14 +63,33 @@ namespace CoasterForge {
                     if (type == PortType.Anchor) {
                         anchor.Value = SystemAPI.GetComponent<AnchorPort>(inputPort);
                     }
-                    else if (type == PortType.Position) {
-                        float3 position = SystemAPI.GetComponent<PositionPort>(inputPort);
-                        anchor.Value.SetPosition(position);
-                    }
                     else if (type == PortType.Duration) {
                         float duration = SystemAPI.GetComponent<DurationPort>(inputPort);
                         ref var durationComponent = ref SystemAPI.GetComponentRW<Duration>(nodeEntity).ValueRW;
                         durationComponent.Value = duration;
+                    }
+                    else if (type == PortType.Position) {
+                        float3 position = SystemAPI.GetComponent<PositionPort>(inputPort);
+                        anchor.Value.SetPosition(position);
+                    }
+                    else if (type == PortType.Roll) {
+                        float roll = SystemAPI.GetComponent<RollPort>(inputPort);
+                        anchor.Value.SetRoll(roll);
+                    }
+                    else if (type == PortType.Pitch) {
+                        float pitch = SystemAPI.GetComponent<PitchPort>(inputPort);
+                        anchor.Value.SetPitch(pitch);
+                    }
+                    else if (type == PortType.Yaw) {
+                        float yaw = SystemAPI.GetComponent<YawPort>(inputPort);
+                        anchor.Value.SetYaw(yaw);
+                    }
+                    else if (type == PortType.Velocity) {
+                        float velocity = SystemAPI.GetComponent<VelocityPort>(inputPort);
+                        anchor.Value.SetVelocity(velocity);
+                    }
+                    else {
+                        throw new System.NotImplementedException($"Unknown input port type: {type}");
                     }
 
                     inputPortDirty = false;

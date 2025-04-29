@@ -12,14 +12,18 @@ namespace CoasterForge.UI {
             _thumb = view;
 
             style.position = Position.Absolute;
-            style.left = 0f;
-            style.right = 0f;
-            style.top = 0f;
-            style.bottom = 0f;
+            style.left = -4f;
+            style.right = -4f;
+            style.top = -4f;
+            style.bottom = -4f;
             style.borderBottomWidth = 2f;
             style.borderTopWidth = 2f;
             style.borderLeftWidth = 2f;
             style.borderRightWidth = 2f;
+            style.borderTopLeftRadius = 8f;
+            style.borderTopRightRadius = 8f;
+            style.borderBottomLeftRadius = 8f;
+            style.borderBottomRightRadius = 8f;
             style.borderBottomColor = Color.clear;
             style.borderTopColor = Color.clear;
             style.borderLeftColor = Color.clear;

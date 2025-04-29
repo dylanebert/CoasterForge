@@ -6,14 +6,25 @@ namespace CoasterForge.UI {
         private InputThumb _thumb;
         private Label _label;
         private float _prevX;
+        private float _sensitivity;
+        private float _minValue;
+        private float _maxValue;
         private bool _dragging;
 
         public FloatField Field { get; private set; }
-
         public bool Dragging => _dragging;
 
-        public LabeledFloatField(InputThumb thumb, string text) {
+        public LabeledFloatField(
+            InputThumb thumb,
+            string text,
+            float sensitivity = 0.01f,
+            float minValue = float.MinValue,
+            float maxValue = float.MaxValue
+        ) {
             _thumb = thumb;
+            _sensitivity = sensitivity;
+            _minValue = minValue;
+            _maxValue = maxValue;
 
             style.position = Position.Relative;
             style.flexDirection = FlexDirection.Row;
@@ -74,9 +85,11 @@ namespace CoasterForge.UI {
             if (!_dragging) return;
             float deltaX = evt.mousePosition.x - _prevX;
             _prevX = evt.mousePosition.x;
-            const float sensitivity = 0.01f;
-            Field.value += deltaX * sensitivity;
-            Field.value = math.round(Field.value * 100f) / 100f;
+            float value = Field.value;
+            value += deltaX * _sensitivity;
+            value = math.round(value * 100f) / 100f;
+            value = math.clamp(value, _minValue, _maxValue);
+            Field.value = value;
             evt.StopPropagation();
         }
 
@@ -86,6 +99,12 @@ namespace CoasterForge.UI {
             _label.ReleaseMouse();
             _thumb.SetEditing(false);
             evt.StopPropagation();
+        }
+
+        public void Clamp() {
+            float value = Field.value;
+            if (value >= _minValue && value <= _maxValue) return;
+            Field.value = math.clamp(value, _minValue, _maxValue);
         }
     }
 }

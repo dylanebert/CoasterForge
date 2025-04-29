@@ -24,6 +24,7 @@ namespace CoasterForge.UI {
         private VisualElement _inputsContainer;
         private VisualElement _portsDivider;
         private VisualElement _outputsContainer;
+        private LabeledEnumField<DurationType> _durationTypeField;
         private VisualElement _footerDivider;
         private VisualElement _footer;
         private Vector2 _dragStart;
@@ -36,6 +37,7 @@ namespace CoasterForge.UI {
 
         public NodeGraphView View => _view;
         public Entity Entity => _entity;
+        public NodeType Type => _type;
         public List<NodeGraphPort> Inputs => _inputs;
         public List<NodeGraphPort> Outputs => _outputs;
 
@@ -209,6 +211,49 @@ namespace CoasterForge.UI {
             };
             _contents.Add(_outputsContainer);
 
+            if (_type == NodeType.ForceSection || _type == NodeType.GeometricSection) {
+                var itemsDivider = new VisualElement {
+                    style = {
+                        position = Position.Relative,
+                        height = 1f,
+                        paddingLeft = 0f,
+                        paddingRight = 0f,
+                        paddingTop = 0f,
+                        paddingBottom = 0f,
+                        marginLeft = 0f,
+                        marginRight = 0f,
+                        marginTop = 0f,
+                        marginBottom = 0f,
+                        backgroundColor = s_DividerColor
+                    }
+                };
+                Add(itemsDivider);
+
+                var itemsContainer = new VisualElement {
+                    style = {
+                        position = Position.Relative,
+                        flexDirection = FlexDirection.Column,
+                        alignItems = Align.Stretch,
+                        justifyContent = Justify.FlexStart,
+                        paddingLeft = 0f,
+                        paddingRight = 0f,
+                        paddingTop = 4f,
+                        paddingBottom = 4f,
+                        marginLeft = 0f,
+                        marginRight = 0f,
+                        marginTop = 0f,
+                        marginBottom = 0f,
+                        backgroundColor = s_HeaderColor
+                    }
+                };
+                Add(itemsContainer);
+
+                _durationTypeField = new LabeledEnumField<DurationType>(this, "Type", DurationType.Time);
+                itemsContainer.Add(_durationTypeField);
+
+                _durationTypeField.ValueChanged += OnDurationTypeChanged;
+            }
+
             _footerDivider = new VisualElement {
                 style = {
                     position = Position.Relative,
@@ -279,6 +324,10 @@ namespace CoasterForge.UI {
                 _outputsContainer.Add(uiPort);
                 _outputs.Add(uiPort);
             }
+        }
+
+        private void OnDurationTypeChanged(DurationType durationType) {
+            _view.InvokeDurationTypeChangeRequest(this, durationType);
         }
 
         public void Select() {
@@ -403,6 +452,10 @@ namespace CoasterForge.UI {
 
         public void SetPortData(int index, object data) {
             _inputs[index].SetData(data);
+        }
+
+        public void SetDurationType(DurationType durationType) {
+            _durationTypeField.SetValue(durationType);
         }
     }
 }
