@@ -17,17 +17,18 @@ namespace CoasterForge.UI {
         private VisualElement _connector;
         private VisualElement _circle;
         private VisualElement _cap;
-        private InputThumb _inputView;
+        private InputThumb _thumb;
         private Label _label;
         private Edge _dragEdge;
         private bool _isConnected;
+        private bool _mouseCaptured;
 
         public NodeGraphNode Node => _node;
         public VisualElement Connector => _connector;
         public string Name => _data.Name;
         public Entity Entity => _data.Entity;
         public PortType Type => _data.Type;
-        public PointData Data => _data.Data;
+        public object Data => _data.Data;
         public bool IsInput => _data.IsInput;
 
         public NodeGraphPort(
@@ -40,10 +41,11 @@ namespace CoasterForge.UI {
             _data = data;
 
             style.position = Position.Relative;
-            style.flexGrow = 1f;
+            style.flexGrow = 0f;
             style.flexDirection = data.IsInput ? FlexDirection.Row : FlexDirection.RowReverse;
             style.justifyContent = Justify.FlexStart;
             style.alignItems = Align.Center;
+            style.height = 24f;
             style.paddingLeft = 4f;
             style.paddingRight = 4f;
             style.paddingBottom = 0f;
@@ -133,10 +135,12 @@ namespace CoasterForge.UI {
             Add(_label);
 
             if (_data.IsInput) {
-                _inputView = new InputThumb(this);
-                Add(_inputView);
+                _thumb = new InputThumb(this);
+                _connector.Add(_thumb);
             }
 
+            _view.RegisterCallback<MouseCaptureEvent>(OnMouseCapture, TrickleDown.TrickleDown);
+            _view.RegisterCallback<MouseCaptureOutEvent>(OnMouseCaptureOut, TrickleDown.TrickleDown);
             _connector.RegisterCallback<MouseOverEvent>(OnMouseOver);
             _connector.RegisterCallback<MouseOutEvent>(OnMouseOut);
             _connector.RegisterCallback<MouseDownEvent>(OnMouseDown);
@@ -157,8 +161,8 @@ namespace CoasterForge.UI {
                 _cap.style.display = DisplayStyle.None;
             }
 
-            if (_inputView != null) {
-                _inputView.style.display = _isConnected ? DisplayStyle.None : DisplayStyle.Flex;
+            if (_thumb != null) {
+                _thumb.style.display = _isConnected ? DisplayStyle.None : DisplayStyle.Flex;
             }
         }
 
@@ -167,7 +171,22 @@ namespace CoasterForge.UI {
             UpdateDisplay();
         }
 
+        private void OnMouseCapture(MouseCaptureEvent evt) {
+            if (evt.relatedTarget != this) {
+                OnMouseOut(null);
+                _mouseCaptured = true;
+            }
+        }
+
+        private void OnMouseCaptureOut(MouseCaptureOutEvent evt) {
+            if (evt.relatedTarget != this) {
+                _mouseCaptured = false;
+            }
+        }
+
         private void OnMouseOver(MouseOverEvent evt) {
+            if (_mouseCaptured && s_DraggedPort == null) return;
+
             if (s_DraggedPort != null && (
                 s_DraggedPort?.Node == _node
                 || s_DraggedPort?.IsInput == _data.IsInput
@@ -177,6 +196,8 @@ namespace CoasterForge.UI {
         }
 
         private void OnMouseOut(MouseOutEvent evt) {
+            if (_mouseCaptured && s_DraggedPort == null) return;
+
             if (s_HoveredPort == this) {
                 s_HoveredPort = null;
             }
@@ -250,12 +271,8 @@ namespace CoasterForge.UI {
             _circle.style.borderBottomColor = color;
         }
 
-        public void SetData(PointData data) {
-            if (_data.Type != PortType.Position) {
-                throw new System.NotImplementedException("Only position implemented");
-            }
-
-            _inputView.SetData(data);
+        public void SetData(object data) {
+            _thumb.SetData(data);
         }
     }
 }

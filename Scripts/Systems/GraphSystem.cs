@@ -67,6 +67,11 @@ namespace CoasterForge {
                         float3 position = SystemAPI.GetComponent<PositionPort>(inputPort);
                         anchor.Value.SetPosition(position);
                     }
+                    else if (type == PortType.Duration) {
+                        float duration = SystemAPI.GetComponent<DurationPort>(inputPort);
+                        ref var durationComponent = ref SystemAPI.GetComponentRW<Duration>(nodeEntity).ValueRW;
+                        durationComponent.Value = duration;
+                    }
 
                     inputPortDirty = false;
                     node.Dirty = true;

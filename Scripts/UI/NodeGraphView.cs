@@ -51,7 +51,7 @@ namespace CoasterForge.UI {
         public event Action RemoveSelectedRequested;
         public event Action<List<NodeGraphNode>, float2> MoveNodesRequested;
         public event Action<NodeGraphPort, NodeGraphPort> ConnectionRequested;
-        public event Action<NodeGraphPort, PointData> PortChangeRequested;
+        public event Action<NodeGraphPort, object> PortChangeRequested;
         public event Action<NodeGraphPort> PromoteRequested;
 
         public NodeGraphView() {
@@ -557,7 +557,7 @@ namespace CoasterForge.UI {
             ConnectionRequested?.Invoke(source, target);
         }
 
-        public void InvokePortChangeRequest(NodeGraphPort port, PointData data) {
+        public void InvokePortChangeRequest(NodeGraphPort port, object data) {
             PortChangeRequested?.Invoke(port, data);
         }
 

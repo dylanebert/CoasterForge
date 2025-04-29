@@ -24,5 +24,6 @@ namespace CoasterForge {
     public enum PortType {
         Anchor,
         Position,
+        Duration,
     }
 }

@@ -5,7 +5,7 @@ namespace CoasterForge.UI {
         public string Name;
         public Entity Entity;
         public PortType Type;
-        public PointData Data;
+        public object Data;
         public bool IsInput;
     }
 }

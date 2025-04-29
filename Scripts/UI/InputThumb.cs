@@ -9,12 +9,14 @@ namespace CoasterForge.UI {
         private static readonly Color s_CircleBackgroundColor = new(0.2f, 0.2f, 0.2f);
 
         private NodeGraphPort _port;
-        private FloatField _xField;
-        private FloatField _yField;
-        private FloatField _zField;
+        private LabeledFloatField _fieldA;
+        private LabeledFloatField _fieldB;
+        private LabeledFloatField _fieldC;
         private InputViewEdge _edge;
-        private float _lastX, _lastY, _lastZ;
+        private float _lastA, _lastB, _lastC;
         private bool _editing;
+        private bool _changed;
+        private bool _locked;
 
         public NodeGraphPort Port => _port;
 
@@ -24,20 +26,20 @@ namespace CoasterForge.UI {
             style.position = Position.Absolute;
             style.flexDirection = FlexDirection.Row;
             style.alignItems = Align.Stretch;
-            style.height = 22f;
+            style.height = 21f;
+            style.right = 0f;
             style.paddingLeft = 0f;
             style.paddingRight = 0f;
             style.paddingTop = 0f;
             style.paddingBottom = 0f;
             style.marginLeft = 0f;
-            style.marginRight = 48f;
+            style.marginRight = 32f;
             style.marginTop = 0f;
             style.marginBottom = 0f;
             style.backgroundColor = s_BackgroundColor;
 
-            if (_port.Type == PortType.Anchor) {
-                var container = new VisualElement {
-                    style = {
+            var container = new VisualElement {
+                style = {
                         position = Position.Relative,
                         flexDirection = FlexDirection.Row,
                         alignItems = Align.Center,
@@ -51,107 +53,25 @@ namespace CoasterForge.UI {
                         marginBottom = 0f,
                         backgroundColor = Color.clear
                     }
-                };
+            };
+            Add(container);
+
+            if (_port.Type == PortType.Anchor) {
                 container.Add(new Label("Anchor"));
-                Add(container);
             }
             else if (_port.Type == PortType.Position) {
-                var container = new VisualElement {
-                    style = {
-                        position = Position.Relative,
-                        flexDirection = FlexDirection.Row,
-                        alignItems = Align.Center,
-                        paddingLeft = 8f,
-                        paddingRight = 0f,
-                        paddingTop = 0f,
-                        paddingBottom = 0f,
-                        marginLeft = 0f,
-                        marginRight = 0f,
-                        marginTop = 0f,
-                        marginBottom = 0f,
-                        backgroundColor = Color.clear
-                    }
-                };
-                Add(container);
+                _fieldA = new LabeledFloatField(this, "X");
+                _fieldB = new LabeledFloatField(this, "Y");
+                _fieldC = new LabeledFloatField(this, "Z");
 
-                var dummy = new VisualElement {
-                    style = {
-                        position = Position.Relative,
-                        minWidth = 3f,
-                    }
-                };
-                dummy.Add(new Label("X"));
-                container.Add(dummy);
+                container.Add(_fieldA);
+                container.Add(_fieldB);
+                container.Add(_fieldC);
+            }
+            else if (_port.Type == PortType.Duration) {
+                _fieldA = new LabeledFloatField(this, "X");
 
-                _xField = new FloatField {
-                    style = {
-                        minWidth = 30f,
-                        marginLeft = 4f,
-                        marginRight = 4f,
-                        marginTop = 1f,
-                        marginBottom = 1f,
-                        paddingLeft = 0f,
-                        paddingRight = 0f,
-                        paddingTop = 1f,
-                        paddingBottom = 2f,
-                    }
-                };
-                container.Add(_xField);
-
-                dummy = new VisualElement {
-                    style = {
-                        position = Position.Relative,
-                        minWidth = 3f
-                    }
-                };
-                dummy.Add(new Label("Y"));
-                container.Add(dummy);
-
-                _yField = new FloatField {
-                    style = {
-                        minWidth = 30f,
-                        marginLeft = 4f,
-                        marginRight = 4f,
-                        marginTop = 1f,
-                        marginBottom = 1f,
-                        paddingLeft = 0f,
-                        paddingRight = 0f,
-                        paddingTop = 1f,
-                        paddingBottom = 2f,
-                    }
-                };
-                container.Add(_yField);
-
-                dummy = new VisualElement {
-                    style = {
-                        position = Position.Relative,
-                        minWidth = 3f
-                    }
-                };
-                dummy.Add(new Label("Z"));
-                container.Add(dummy);
-
-                _zField = new FloatField {
-                    style = {
-                        minWidth = 30f,
-                        marginLeft = 4f,
-                        marginRight = 4f,
-                        marginTop = 1f,
-                        marginBottom = 1f,
-                        paddingLeft = 0f,
-                        paddingRight = 0f,
-                        paddingTop = 1f,
-                        paddingBottom = 2f,
-                    }
-                };
-                container.Add(_zField);
-
-                _xField.RegisterCallback<FocusInEvent>(OnFocusIn);
-                _yField.RegisterCallback<FocusInEvent>(OnFocusIn);
-                _zField.RegisterCallback<FocusInEvent>(OnFocusIn);
-                _xField.RegisterCallback<FocusOutEvent>(OnFocusOut);
-                _yField.RegisterCallback<FocusOutEvent>(OnFocusOut);
-                _zField.RegisterCallback<FocusOutEvent>(OnFocusOut);
+                container.Add(_fieldA);
             }
 
             var connector = new VisualElement {
@@ -209,14 +129,19 @@ namespace CoasterForge.UI {
                 Add(new AnchorThumbControl(this));
             }
 
-            RegisterCallback<GeometryChangedEvent>(OnGeometryChanged);
+            _fieldA?.RegisterCallback<FocusInEvent>(OnFocusIn);
+            _fieldB?.RegisterCallback<FocusInEvent>(OnFocusIn);
+            _fieldC?.RegisterCallback<FocusInEvent>(OnFocusIn);
+            _fieldA?.RegisterCallback<FocusOutEvent>(OnFocusOut);
+            _fieldB?.RegisterCallback<FocusOutEvent>(OnFocusOut);
+            _fieldC?.RegisterCallback<FocusOutEvent>(OnFocusOut);
+            _fieldA?.Field.RegisterValueChangedCallback(OnValueChanged);
+            _fieldB?.Field.RegisterValueChangedCallback(OnValueChanged);
+            _fieldC?.Field.RegisterValueChangedCallback(OnValueChanged);
+
             RegisterCallback<MouseOverEvent>(OnMouseOver);
             RegisterCallback<MouseOutEvent>(OnMouseOut);
             RegisterCallback<MouseDownEvent>(OnMouseDown);
-        }
-
-        private void OnGeometryChanged(GeometryChangedEvent evt) {
-            style.right = _port.resolvedStyle.width * 0.5f;
         }
 
         private void OnMouseOver(MouseOverEvent evt) {
@@ -232,36 +157,76 @@ namespace CoasterForge.UI {
         }
 
         private void OnFocusIn(FocusInEvent evt) {
-            _editing = true;
+            SetEditing(true);
         }
 
         private void OnFocusOut(FocusOutEvent evt) {
-            if (evt.target != _xField && evt.target != _yField && evt.target != _zField) {
-                _editing = false;
-
-                if (_xField.value != _lastX || _yField.value != _lastY || _zField.value != _lastZ) {
-                    PointData data = PointData.Create();
-                    float3 position = new(_xField.value, _yField.value, _zField.value);
-                    data.SetPosition(position);
-                    _port.Node.View.InvokePortChangeRequest(_port, data);
-
-                    _lastX = _xField.value;
-                    _lastY = _yField.value;
-                    _lastZ = _zField.value;
-                }
-            }
+            SetEditing(false);
         }
 
-        public void SetData(PointData data) {
+        private void OnValueChanged(ChangeEvent<float> evt) {
+            if (_locked) return;
+
+            bool changed = (_fieldA != null && _fieldA.Field.value != _lastA)
+                || (_fieldB != null && _fieldB.Field.value != _lastB)
+                || (_fieldC != null && _fieldC.Field.value != _lastC);
+
+            if (!changed) return;
+
+            if (changed && !_changed) {
+                UndoManager.Record();
+                _changed = true;
+            }
+
+            switch (_port.Type) {
+                case PortType.Position:
+                    float3 position = new(_fieldA.Field.value, _fieldB.Field.value, _fieldC.Field.value);
+                    _port.Node.View.InvokePortChangeRequest(_port, position);
+                    break;
+                case PortType.Duration:
+                    float duration = _fieldA.Field.value;
+                    _port.Node.View.InvokePortChangeRequest(_port, duration);
+                    break;
+            }
+
+            _lastA = _fieldA?.Field.value ?? 0f;
+            _lastB = _fieldB?.Field.value ?? 0f;
+            _lastC = _fieldC?.Field.value ?? 0f;
+        }
+
+        public void SetData(object data) {
             if (_editing) return;
 
-            _xField.value = data.Position.x;
-            _yField.value = data.Position.y;
-            _zField.value = data.Position.z;
+            _locked = true;
 
-            _lastX = data.Position.x;
-            _lastY = data.Position.y;
-            _lastZ = data.Position.z;
+            switch (_port.Type) {
+                case PortType.Position:
+                    float3 position = (float3)data;
+                    _lastA = position.x;
+                    _lastB = position.y;
+                    _lastC = position.z;
+                    _fieldA.Field.value = position.x;
+                    _fieldB.Field.value = position.y;
+                    _fieldC.Field.value = position.z;
+                    break;
+                case PortType.Duration:
+                    float duration = (float)data;
+                    _lastA = duration;
+                    _fieldA.Field.value = duration;
+                    break;
+            }
+
+            _locked = false;
+            OnValueChanged(null);
+        }
+
+        public void SetEditing(bool editing) {
+            _editing = editing;
+            _changed = false;
+
+            _lastA = _fieldA?.Field.value ?? 0f;
+            _lastB = _fieldB?.Field.value ?? 0f;
+            _lastC = _fieldC?.Field.value ?? 0f;
         }
     }
 }

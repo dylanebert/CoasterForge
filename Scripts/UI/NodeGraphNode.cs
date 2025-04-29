@@ -196,7 +196,7 @@ namespace CoasterForge.UI {
                 style = {
                     position = Position.Relative,
                     flexDirection = FlexDirection.Column,
-                    justifyContent = Justify.FlexEnd,
+                    justifyContent = Justify.FlexStart,
                     alignItems = Align.FlexStart,
                     backgroundColor = s_BackgroundColor,
                     paddingLeft = 0f,
@@ -401,13 +401,8 @@ namespace CoasterForge.UI {
             style.top = position.y;
         }
 
-        public void SetAnchor(PointData anchor) {
-            if (_type != NodeType.Anchor) {
-                Debug.LogError("SetAnchor called on non-anchor node");
-                return;
-            }
-
-            _inputs[0].SetData(anchor);
+        public void SetPortData(int index, object data) {
+            _inputs[index].SetData(data);
         }
     }
 }

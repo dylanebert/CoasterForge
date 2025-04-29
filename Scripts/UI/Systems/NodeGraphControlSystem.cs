@@ -86,13 +86,18 @@ namespace CoasterForge.UI {
                 foreach (var port in inputPorts) {
                     string name = SystemAPI.GetComponent<Name>(port);
                     PortType portType = SystemAPI.GetComponent<Port>(port);
-                    PointData data = default;
+                    object data = default;
                     if (portType == PortType.Anchor) {
-                        data = SystemAPI.GetComponent<AnchorPort>(port);
+                        data = SystemAPI.GetComponent<AnchorPort>(port).Value;
                     }
                     else if (portType == PortType.Position) {
-                        float3 position = SystemAPI.GetComponent<PositionPort>(port);
-                        data.SetPosition(position);
+                        data = SystemAPI.GetComponent<PositionPort>(port).Value;
+                    }
+                    else if (portType == PortType.Duration) {
+                        data = SystemAPI.GetComponent<DurationPort>(port).Value;
+                    }
+                    else {
+                        throw new NotImplementedException();
                     }
                     _inputPortData.Add(new PortData {
                         Name = name,
@@ -105,7 +110,13 @@ namespace CoasterForge.UI {
                 foreach (var port in outputPorts) {
                     string name = SystemAPI.GetComponent<Name>(port);
                     PortType portType = SystemAPI.GetComponent<Port>(port);
-                    PointData data = SystemAPI.GetComponent<AnchorPort>(port);
+                    object data = default;
+                    if (portType == PortType.Anchor) {
+                        data = SystemAPI.GetComponent<AnchorPort>(port).Value;
+                    }
+                    else {
+                        throw new NotImplementedException();
+                    }
                     _outputPortData.Add(new PortData {
                         Name = name,
                         Entity = port,
@@ -124,9 +135,8 @@ namespace CoasterForge.UI {
 
                 uiNode.SetPosition(uiPosition);
 
-                if (nodeType == NodeType.Anchor) {
-                    PointData anchor = SystemAPI.GetComponent<Anchor>(entity);
-                    uiNode.SetAnchor(anchor);
+                for (int j = 0; j < _inputPortData.Count; j++) {
+                    uiNode.SetPortData(j, _inputPortData[j].Data);
                 }
             }
 
@@ -236,6 +246,16 @@ namespace CoasterForge.UI {
                 ecb.AddComponent<AnchorPort>(inputPort, PointData.Create());
                 ecb.AppendToBuffer<InputPortReference>(node, inputPort);
                 ecb.SetName(inputPort, name);
+
+                var durationPort = ecb.CreateEntity();
+                name = "Duration";
+                ecb.AddComponent<Name>(durationPort, name);
+                ecb.AddComponent<Port>(durationPort, PortType.Duration);
+                ecb.AddComponent(durationPort, Uuid.Create());
+                ecb.AddComponent<Dirty>(durationPort, true);
+                ecb.AddComponent<DurationPort>(durationPort, 1f);
+                ecb.AppendToBuffer<InputPortReference>(node, durationPort);
+                ecb.SetName(durationPort, name);
             }
 
             PointData anchor = PointData.Create();
@@ -391,19 +411,25 @@ namespace CoasterForge.UI {
             AddConnection(source.Entity, target.Entity);
         }
 
-        private void OnPortChangeRequested(NodeGraphPort port, PointData data) {
-            if (!port.IsInput || port.Type != PortType.Position) {
-                throw new NotImplementedException("Only input position ports can be changed");
+        private void OnPortChangeRequested(NodeGraphPort port, object data) {
+            if (!port.IsInput) {
+                throw new NotImplementedException("Only input ports can be changed");
             }
 
             var entity = port.Entity;
-            ref var position = ref SystemAPI.GetComponentRW<PositionPort>(entity).ValueRW;
-            if (position.Equals(data.Position)) return;
 
-            UndoManager.Record();
+            switch (port.Type) {
+                case PortType.Position:
+                    ref var position = ref SystemAPI.GetComponentRW<PositionPort>(entity).ValueRW;
+                    position = (float3)data;
+                    break;
+                case PortType.Duration:
+                    ref var duration = ref SystemAPI.GetComponentRW<DurationPort>(entity).ValueRW;
+                    duration = (float)data;
+                    break;
+            }
 
             ref var dirty = ref SystemAPI.GetComponentRW<Dirty>(entity).ValueRW;
-            position = data.Position;
             dirty = true;
         }
 
@@ -425,6 +451,9 @@ namespace CoasterForge.UI {
             AddConnection(sourcePort, targetPort);
 
             PointData anchor = SystemAPI.GetComponent<AnchorPort>(targetPort);
+            ref var nodeAnchor = ref SystemAPI.GetComponentRW<Anchor>(node).ValueRW;
+            nodeAnchor.Value = anchor;
+
             var anchorInputBuffer = SystemAPI.GetBuffer<InputPortReference>(node);
             ref var positionPort = ref SystemAPI.GetComponentRW<PositionPort>(anchorInputBuffer[0].Value).ValueRW;
             positionPort.Value = anchor.Position;
@@ -446,20 +475,24 @@ namespace CoasterForge.UI {
                     uint uuid = SystemAPI.GetComponent<Uuid>(port);
                     string portName = SystemAPI.GetComponent<Name>(port);
                     PortType portType = SystemAPI.GetComponent<Port>(port);
-                    PointData point = default;
-                    if (portType == PortType.Anchor) {
-                        point = SystemAPI.GetComponent<AnchorPort>(port);
-                    }
-                    else if (portType == PortType.Position) {
-                        float3 position = SystemAPI.GetComponent<PositionPort>(port);
-                        point.SetPosition(position);
-                    }
-                    inputPorts.Add(new SerializedPort {
+                    SerializedPort serializedPort = new() {
                         Id = uuid,
                         Name = portName,
                         Type = portType,
-                        Data = point,
-                    });
+                    };
+                    if (portType == PortType.Anchor) {
+                        serializedPort.PointData = SystemAPI.GetComponent<AnchorPort>(port).Value;
+                    }
+                    else if (portType == PortType.Position) {
+                        serializedPort.Float3Data = SystemAPI.GetComponent<PositionPort>(port).Value;
+                    }
+                    else if (portType == PortType.Duration) {
+                        serializedPort.FloatData = SystemAPI.GetComponent<DurationPort>(port).Value;
+                    }
+                    else {
+                        throw new NotImplementedException();
+                    }
+                    inputPorts.Add(serializedPort);
                 }
 
                 var outputPorts = new List<SerializedPort>();
@@ -467,20 +500,24 @@ namespace CoasterForge.UI {
                     uint uuid = SystemAPI.GetComponent<Uuid>(port);
                     string portName = SystemAPI.GetComponent<Name>(port);
                     PortType portType = SystemAPI.GetComponent<Port>(port);
-                    PointData point = default;
-                    if (portType == PortType.Anchor) {
-                        point = SystemAPI.GetComponent<AnchorPort>(port);
-                    }
-                    else if (portType == PortType.Position) {
-                        float3 position = SystemAPI.GetComponent<PositionPort>(port);
-                        point.SetPosition(position);
-                    }
-                    outputPorts.Add(new SerializedPort {
+                    SerializedPort serializedPort = new() {
                         Id = uuid,
                         Name = portName,
                         Type = portType,
-                        Data = point,
-                    });
+                    };
+                    if (portType == PortType.Anchor) {
+                        serializedPort.PointData = SystemAPI.GetComponent<AnchorPort>(port).Value;
+                    }
+                    else if (portType == PortType.Position) {
+                        serializedPort.Float3Data = SystemAPI.GetComponent<PositionPort>(port).Value;
+                    }
+                    else if (portType == PortType.Duration) {
+                        serializedPort.FloatData = SystemAPI.GetComponent<DurationPort>(port).Value;
+                    }
+                    else {
+                        throw new NotImplementedException();
+                    }
+                    outputPorts.Add(serializedPort);
                 }
 
                 Anchor anchor = SystemAPI.GetComponent<Anchor>(nodeEntity);
@@ -620,10 +657,13 @@ namespace CoasterForge.UI {
                     ecb.AddComponent<Uuid>(portEntity, port.Id);
                     ecb.AddComponent<Dirty>(portEntity, true);
                     if (port.Type == PortType.Anchor) {
-                        ecb.AddComponent<AnchorPort>(portEntity, port.Data);
+                        ecb.AddComponent<AnchorPort>(portEntity, port.PointData);
                     }
                     else if (port.Type == PortType.Position) {
-                        ecb.AddComponent<PositionPort>(portEntity, port.Data.Position);
+                        ecb.AddComponent<PositionPort>(portEntity, port.Float3Data);
+                    }
+                    else if (port.Type == PortType.Duration) {
+                        ecb.AddComponent<DurationPort>(portEntity, port.FloatData);
                     }
                     ecb.AppendToBuffer<InputPortReference>(entity, portEntity);
                     ecb.SetName(portEntity, port.Name);
@@ -639,10 +679,13 @@ namespace CoasterForge.UI {
                     ecb.AddComponent<Uuid>(portEntity, port.Id);
                     ecb.AddComponent<Dirty>(portEntity);
                     if (port.Type == PortType.Anchor) {
-                        ecb.AddComponent<AnchorPort>(portEntity, port.Data);
+                        ecb.AddComponent<AnchorPort>(portEntity, port.PointData);
                     }
                     else if (port.Type == PortType.Position) {
-                        ecb.AddComponent<PositionPort>(portEntity, port.Data.Position);
+                        ecb.AddComponent<PositionPort>(portEntity, port.Float3Data);
+                    }
+                    else if (port.Type == PortType.Duration) {
+                        ecb.AddComponent<DurationPort>(portEntity, port.FloatData);
                     }
                     ecb.AppendToBuffer<OutputPortReference>(entity, portEntity);
                     ecb.SetName(portEntity, port.Name);
