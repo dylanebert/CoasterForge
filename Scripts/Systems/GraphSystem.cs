@@ -63,6 +63,9 @@ namespace CoasterForge {
                     if (type == PortType.Anchor) {
                         anchor.Value = SystemAPI.GetComponent<AnchorPort>(inputPort);
                     }
+                    else if (type == PortType.Path) {
+                        // Handle in job
+                    }
                     else if (type == PortType.Duration) {
                         float duration = SystemAPI.GetComponent<DurationPort>(inputPort);
                         ref var durationComponent = ref SystemAPI.GetComponentRW<Duration>(nodeEntity).ValueRW;
@@ -112,12 +115,13 @@ namespace CoasterForge {
             var nodes = _nodeQuery.ToEntityArray(Allocator.Temp);
             foreach (var nodeEntity in nodes) {
                 var node = SystemAPI.GetAspect<NodeAspect>(nodeEntity);
+                if (node.Dirty) continue;
                 foreach (var sourcePort in node.OutputPorts) {
                     ref Dirty sourcePortDirty = ref SystemAPI.GetComponentRW<Dirty>(sourcePort).ValueRW;
                     if (!sourcePortDirty || !map.ContainsKey(sourcePort)) continue;
 
                     foreach (var targetPort in map.GetValuesForKey(sourcePort)) {
-                        PropagateConnection(ref state, sourcePort, targetPort);
+                        PropagateConnection(ref state, node, sourcePort, targetPort);
                     }
 
                     sourcePortDirty = false;
@@ -128,13 +132,22 @@ namespace CoasterForge {
             nodes.Dispose();
         }
 
-        private void PropagateConnection(ref SystemState state, Entity sourcePort, Entity targetPort) {
+        [BurstCompile]
+        private void PropagateConnection(ref SystemState state, NodeAspect node, Entity sourcePort, Entity targetPort) {
             ref Dirty targetPortDirty = ref SystemAPI.GetComponentRW<Dirty>(targetPort).ValueRW;
 
             if (SystemAPI.HasComponent<AnchorPort>(sourcePort) && SystemAPI.HasComponent<AnchorPort>(targetPort)) {
                 AnchorPort sourcePointPort = SystemAPI.GetComponent<AnchorPort>(sourcePort);
                 ref AnchorPort targetPointPort = ref SystemAPI.GetComponentRW<AnchorPort>(targetPort).ValueRW;
                 targetPointPort.Value = sourcePointPort.Value;
+            }
+            else if (SystemAPI.HasBuffer<PathPort>(sourcePort) && SystemAPI.HasBuffer<PathPort>(targetPort)) {
+                var sourceBuffer = SystemAPI.GetBuffer<Point>(node.Self);
+                var portBuffer = SystemAPI.GetBuffer<PathPort>(targetPort);
+                portBuffer.Clear();
+                foreach (var point in sourceBuffer) {
+                    portBuffer.Add((PathPort)point.Value);
+                }
             }
             else {
                 UnityEngine.Debug.LogWarning("Unknown propagation");

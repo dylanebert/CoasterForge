@@ -199,7 +199,7 @@ namespace CoasterForge.UI {
                     position = Position.Relative,
                     flexDirection = FlexDirection.Column,
                     justifyContent = Justify.FlexStart,
-                    alignItems = Align.FlexStart,
+                    alignItems = Align.FlexEnd,
                     backgroundColor = s_BackgroundColor,
                     paddingLeft = 0f,
                     paddingRight = 0f,

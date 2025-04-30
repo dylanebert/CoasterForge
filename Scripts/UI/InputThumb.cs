@@ -59,6 +59,9 @@ namespace CoasterForge.UI {
             if (_port.Type == PortType.Anchor) {
                 container.Add(new Label("Anchor"));
             }
+            else if (_port.Type == PortType.Path) {
+                container.Add(new Label("Path"));
+            }
             else if (_port.Type == PortType.Position) {
                 _fieldA = new LabeledFloatField(this, "X");
                 _fieldB = new LabeledFloatField(this, "Y");
@@ -235,6 +238,9 @@ namespace CoasterForge.UI {
 
             switch (_port.Type) {
                 case PortType.Anchor:
+                    _locked = false;
+                    return;
+                case PortType.Path:
                     _locked = false;
                     return;
                 case PortType.Position:

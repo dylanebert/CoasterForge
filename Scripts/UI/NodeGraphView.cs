@@ -360,6 +360,9 @@ namespace CoasterForge.UI {
                     menu.AddItem("Add Geometric Section", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.GeometricSection);
                     });
+                    menu.AddItem("Add Copy Path", () => {
+                        AddNodeRequested?.Invoke(contentPosition, NodeType.CopyPath);
+                    });
                 });
             }
 

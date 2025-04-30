@@ -63,14 +63,21 @@ namespace CoasterForge.UI {
                     paddingLeft = 0f,
                     paddingRight = 0f,
                     paddingTop = 1f,
-                    paddingBottom = 1f,
+                    paddingBottom = 1f
                 }
             };
             Add(Field);
 
+            Field.RegisterCallback<AttachToPanelEvent>(OnAttachToPanel);
+
             _label.RegisterCallback<MouseDownEvent>(OnMouseDown);
             _label.RegisterCallback<MouseMoveEvent>(OnMouseMove);
             _label.RegisterCallback<MouseUpEvent>(OnMouseUp);
+        }
+
+        private void OnAttachToPanel(AttachToPanelEvent evt) {
+            Field.Q<TextElement>().style.cursor = UIService.TextCursor;
+            Field.UnregisterCallback<AttachToPanelEvent>(OnAttachToPanel);
         }
 
         private void OnMouseDown(MouseDownEvent evt) {

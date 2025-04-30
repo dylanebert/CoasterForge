@@ -7,21 +7,21 @@ using static CoasterForge.Constants;
 namespace CoasterForge {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial struct BuildGeometricSectionSystem : ISystem {
-        private ComponentLookup<AnchorPort> _pointPortLookup;
+        private ComponentLookup<AnchorPort> _anchorPortLookup;
 
         public void OnCreate(ref SystemState state) {
-            _pointPortLookup = SystemAPI.GetComponentLookup<AnchorPort>(true);
+            _anchorPortLookup = SystemAPI.GetComponentLookup<AnchorPort>(true);
         }
 
         public void OnUpdate(ref SystemState state) {
-            _pointPortLookup.Update(ref state);
+            _anchorPortLookup.Update(ref state);
 
             var ecbSingleton = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>();
             var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
             new Job {
                 Ecb = ecb.AsParallelWriter(),
-                PointPortLookup = _pointPortLookup,
+                AnchorPortLookup = _anchorPortLookup,
             }.ScheduleParallel();
         }
 
@@ -30,7 +30,7 @@ namespace CoasterForge {
             public EntityCommandBuffer.ParallelWriter Ecb;
 
             [ReadOnly]
-            public ComponentLookup<AnchorPort> PointPortLookup;
+            public ComponentLookup<AnchorPort> AnchorPortLookup;
 
             public void Execute([ChunkIndexInQuery] int chunkIndex, Entity entity, GeometricSectionAspect section) {
                 if (!section.Dirty) return;
@@ -45,13 +45,16 @@ namespace CoasterForge {
                     BuildGeometricDistanceSection(section);
                 }
 
-                if (section.OutputPorts.Length > 0 && PointPortLookup.TryGetComponent(section.OutputPorts[0], out var outputPort)) {
-                    outputPort.Value = section.Points[^1].Value;
-                    Ecb.SetComponent(chunkIndex, section.OutputPorts[0], outputPort);
-                    Ecb.SetComponent<Dirty>(chunkIndex, section.OutputPorts[0], true);
+                if (section.OutputPorts.Length > 0 && AnchorPortLookup.TryGetComponent(section.OutputPorts[0], out var anchorPort)) {
+                    anchorPort.Value = section.Points[^1].Value;
+                    Ecb.SetComponent(chunkIndex, section.OutputPorts[0], anchorPort);
                 }
                 else {
-                    UnityEngine.Debug.LogWarning("BuildGeometricSectionSystem: No output port found");
+                    UnityEngine.Debug.LogWarning("BuildGeometricSectionSystem: No anchor port found");
+                }
+
+                foreach (var port in section.OutputPorts) {
+                    Ecb.SetComponent<Dirty>(chunkIndex, port, true);
                 }
 
                 section.Dirty = false;

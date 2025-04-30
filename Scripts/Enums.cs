@@ -16,13 +16,15 @@ namespace CoasterForge {
     }
 
     public enum NodeType {
+        Anchor,
         ForceSection,
         GeometricSection,
-        Anchor,
+        CopyPath,
     }
 
     public enum PortType {
         Anchor,
+        Path,
         Duration,
         Position,
         Roll,
