@@ -13,7 +13,6 @@ namespace CoasterForge.UI {
         public PointData Anchor;
 
         public Duration Duration;
-        public FixedVelocity FixedVelocity;
         public List<Keyframe> RollSpeedKeyframes;
         public List<Keyframe> NormalForceKeyframes;
         public List<Keyframe> LateralForceKeyframes;

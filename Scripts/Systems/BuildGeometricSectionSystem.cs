@@ -76,7 +76,7 @@ namespace CoasterForge {
                     float deltaPitch = pitchChangeRate * deltaTime;
                     float deltaYaw = yawChangeRate * deltaTime;
 
-                    UpdateGeometricPoint(section, ref curr, ref prev, deltaRoll, deltaPitch, deltaYaw);
+                    UpdateGeometricPoint(section, ref curr, prev, deltaRoll, deltaPitch, deltaYaw);
                     section.Points.Add(curr);
 
                     if (curr.Velocity < EPSILON) {
@@ -102,7 +102,7 @@ namespace CoasterForge {
                     float deltaPitch = pitchChangeRatePerMeter * prev.Velocity * deltaTime;
                     float deltaYaw = yawChangeRatePerMeter * prev.Velocity * deltaTime;
 
-                    UpdateGeometricPoint(section, ref curr, ref prev, deltaRoll, deltaPitch, deltaYaw);
+                    UpdateGeometricPoint(section, ref curr, prev, deltaRoll, deltaPitch, deltaYaw);
                     section.Points.Add(curr);
 
                     if (curr.Velocity < EPSILON) {
@@ -115,7 +115,7 @@ namespace CoasterForge {
             private void UpdateGeometricPoint(
                 GeometricSectionAspect section,
                 ref PointData curr,
-                ref PointData prev,
+                in PointData prev,
                 float deltaRoll,
                 float deltaPitch,
                 float deltaYaw
@@ -145,17 +145,6 @@ namespace CoasterForge {
                 curr.HeartDistanceFromLast = math.distance(curr.Position, prev.Position);
                 curr.TotalHeartLength += curr.HeartDistanceFromLast;
 
-                // Update energy and velocity
-                float pe = G * (curr.GetHeartPosition(CENTER).y + curr.TotalLength * FRICTION);
-                if (section.FixedVelocity) {
-                    curr.Velocity = 10f;
-                    curr.Energy = 0.5f * curr.Velocity * curr.Velocity + pe;
-                }
-                else {
-                    curr.Energy -= curr.Velocity * curr.Velocity * curr.Velocity * RESISTANCE / HZ;
-                    curr.Velocity = math.sqrt(2f * math.max(0, curr.Energy - pe));
-                }
-
                 // Compute orientation changes
                 float3 diff = curr.Direction - prev.Direction;
                 if (math.length(diff) < EPSILON) {
@@ -168,6 +157,11 @@ namespace CoasterForge {
                 }
                 float yawScaleFactor = math.cos(math.abs(math.radians(curr.GetPitch())));
                 curr.AngleFromLast = math.sqrt(yawScaleFactor * yawScaleFactor * curr.YawFromLast * curr.YawFromLast + curr.PitchFromLast * curr.PitchFromLast);
+
+                // Update energy and velocity
+                float pe = G * (curr.GetHeartPosition(CENTER).y + curr.TotalLength * FRICTION);
+                curr.Energy -= curr.Velocity * curr.Velocity * curr.Velocity * RESISTANCE / HZ;
+                curr.Velocity = math.sqrt(2f * math.max(0, curr.Energy - pe));
 
                 // Compute actual forces
                 float3 forceVec;

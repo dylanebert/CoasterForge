@@ -150,6 +150,7 @@ namespace CoasterForge {
                 curr.HeartDistanceFromLast = math.distance(curr.Position, prev.Position);
                 curr.TotalHeartLength += curr.HeartDistanceFromLast;
 
+                // Compute orientation changes
                 float3 diff = curr.Direction - prev.Direction;
                 if (math.length(diff) < EPSILON) {
                     curr.PitchFromLast = 0f;
@@ -162,15 +163,10 @@ namespace CoasterForge {
                 float yawScaleFactor = math.cos(math.abs(math.radians(curr.GetPitch())));
                 curr.AngleFromLast = math.sqrt(yawScaleFactor * yawScaleFactor * curr.YawFromLast * curr.YawFromLast + curr.PitchFromLast * curr.PitchFromLast);
 
+                // Update energy and velocity
                 float pe = G * (curr.GetHeartPosition(CENTER).y + curr.TotalLength * FRICTION);
-                if (section.FixedVelocity) {
-                    curr.Velocity = 10f;
-                    curr.Energy = 0.5f * curr.Velocity * curr.Velocity + pe;
-                }
-                else {
-                    curr.Energy -= curr.Velocity * curr.Velocity * curr.Velocity * RESISTANCE / HZ;
-                    curr.Velocity = math.sqrt(2f * math.max(0, curr.Energy - pe));
-                }
+                curr.Energy -= curr.Velocity * curr.Velocity * curr.Velocity * RESISTANCE / HZ;
+                curr.Velocity = math.sqrt(2f * math.max(0, curr.Energy - pe));
 
                 // Compute actual forces
                 if (math.abs(curr.AngleFromLast) < EPSILON) {

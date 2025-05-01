@@ -7,7 +7,6 @@ namespace CoasterForge {
         private readonly RefRO<Anchor> AnchorRO;
 
         private readonly RefRW<Duration> DurationRW;
-        private readonly RefRW<FixedVelocity> FixedVelocityRW;
         private readonly RefRW<Dirty> DirtyRW;
 
         public readonly DynamicBuffer<Point> Points;
@@ -29,11 +28,6 @@ namespace CoasterForge {
         public float Duration {
             get => DurationRW.ValueRO.Value;
             set => DurationRW.ValueRW.Value = value;
-        }
-
-        public bool FixedVelocity {
-            get => FixedVelocityRW.ValueRO.Value;
-            set => FixedVelocityRW.ValueRW.Value = value;
         }
 
         public bool Dirty {

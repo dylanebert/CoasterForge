@@ -77,6 +77,13 @@ namespace CoasterForge {
             public float DeltaTime;
 
             public void Execute(ref Cart cart, ref LocalTransform transform) {
+                if (cart.Root == Entity.Null) return;
+
+                if (cart.Section == Entity.Null) {
+                    cart.Section = cart.Root;
+                    cart.Position = 1f;
+                }
+
                 var points = PointLookup[cart.Section];
                 if (points.Length < 2) return;
 
@@ -120,10 +127,6 @@ namespace CoasterForge {
                 nextSection = Entity.Null;
 
                 var outputPortBuffer = OutputPortLookup[section];
-                if (outputPortBuffer.Length != 1) {
-                    throw new System.NotImplementedException("Section has multiple output ports");
-                }
-
                 var outputPort = outputPortBuffer[0];
                 var connections = ConnectionMap.GetValuesForKey(outputPort.Value);
                 foreach (var connection in connections) {

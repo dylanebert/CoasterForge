@@ -8,7 +8,7 @@ namespace CoasterForge {
 
         protected override void OnCreate() {
             _query = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<Duration>()
+                .WithAll<Point>()
                 .WithNone<HasMeshDataTag>()
                 .Build(EntityManager);
 
