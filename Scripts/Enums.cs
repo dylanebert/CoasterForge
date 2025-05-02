@@ -20,6 +20,8 @@ namespace CoasterForge {
         ForceSection,
         GeometricSection,
         CopyPath,
+        Reverse,
+        ReversePath,
     }
 
     public enum PortType {

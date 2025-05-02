@@ -84,8 +84,11 @@ namespace CoasterForge {
                     cart.Position = 1f;
                 }
 
-                var points = PointLookup[cart.Section];
-                if (points.Length < 2) return;
+                if (!PointLookup.TryGetBuffer(cart.Section, out var points)
+                    || points.Length < 2) {
+                    Reset(ref cart);
+                    return;
+                }
 
                 cart.Position += DeltaTime * HZ;
                 if (cart.Position > points.Length - 1) {
@@ -96,8 +99,7 @@ namespace CoasterForge {
                         points = PointLookup[cart.Section];
                     }
                     else {
-                        cart.Section = cart.Root;
-                        cart.Position = 1f;
+                        Reset(ref cart);
                         points = PointLookup[cart.Section];
                     }
                 }
@@ -123,6 +125,11 @@ namespace CoasterForge {
                 transform.Rotation = rotation;
             }
 
+            private void Reset(ref Cart cart) {
+                cart.Section = cart.Root;
+                cart.Position = 1f;
+            }
+
             private bool GetNextSection(Entity section, out Entity nextSection) {
                 nextSection = Entity.Null;
 
@@ -131,7 +138,12 @@ namespace CoasterForge {
                 var connections = ConnectionMap.GetValuesForKey(outputPort.Value);
                 foreach (var connection in connections) {
                     nextSection = NodeMap[connection];
-                    return true;
+                    if (PointLookup.HasBuffer(nextSection) && PointLookup[nextSection].Length >= 2) {
+                        return true;
+                    }
+                    if (GetNextSection(nextSection, out nextSection)) {
+                        return true;
+                    }
                 }
 
                 return false;

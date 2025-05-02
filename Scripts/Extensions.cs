@@ -112,8 +112,10 @@ namespace CoasterForge {
             public float2 UV;
         }
 
-        public static float ComputeEnergy(this PointData p) {
-            return 0.5f * p.Velocity * p.Velocity + G * p.GetHeartPosition(CENTER).y;
+        public static float ComputeEnergy(this PointData p, float lengthCompensation = 0f) {
+            float energy = 0.5f * p.Velocity * p.Velocity + G * p.GetHeartPosition(CENTER).y;
+            energy += G * lengthCompensation * FRICTION;
+            return energy;
         }
 
         public static float GetPitch(this PointData p) {

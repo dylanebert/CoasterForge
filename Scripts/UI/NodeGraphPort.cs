@@ -234,24 +234,41 @@ namespace CoasterForge.UI {
                 NodeGraphPort target = IsInput ? s_DraggedPort : s_HoveredPort;
                 _view.InvokeConnectionRequest(source, target);
             }
-            else if (_data.Type == PortType.Anchor) {
-                Vector2 localPosition = evt.localMousePosition;
-                Vector2 worldPosition = _connector.LocalToWorld(localPosition);
-                Vector2 viewPosition = _view.WorldToLocal(worldPosition);
-                Vector2 contentPosition = (viewPosition - _view.Offset) / _view.Zoom;
-                _view.ShowContextMenu(viewPosition, menu => {
-                    if (_data.IsInput) {
-                        menu.AddItem("Add Anchor", () => {
-                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.Anchor);
+            else if (!_data.IsInput) {
+                if (_data.Type == PortType.Anchor) {
+                    Vector2 localPosition = evt.localMousePosition;
+                    Vector2 worldPosition = _connector.LocalToWorld(localPosition);
+                    Vector2 viewPosition = _view.WorldToLocal(worldPosition);
+                    Vector2 contentPosition = (viewPosition - _view.Offset) / _view.Zoom;
+                    _view.ShowContextMenu(viewPosition, menu => {
+                        menu.AddItem("Force Section", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.ForceSection, 0);
                         });
-                    }
-                    menu.AddItem("Add Force Section", () => {
-                        _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.ForceSection);
+                        menu.AddItem("Geometric Section", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.GeometricSection, 0);
+                        });
+                        menu.AddItem("Copy Path", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.CopyPath, 0);
+                        });
+                        menu.AddItem("Reverse", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.Reverse, 0);
+                        });
                     });
-                    menu.AddItem("Add Geometric Section", () => {
-                        _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.GeometricSection);
+                }
+                else if (_data.Type == PortType.Path) {
+                    Vector2 localPosition = evt.localMousePosition;
+                    Vector2 worldPosition = _connector.LocalToWorld(localPosition);
+                    Vector2 viewPosition = _view.WorldToLocal(worldPosition);
+                    Vector2 contentPosition = (viewPosition - _view.Offset) / _view.Zoom;
+                    _view.ShowContextMenu(viewPosition, menu => {
+                        menu.AddItem("Copy Path", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.CopyPath, 1);
+                        });
+                        menu.AddItem("Reverse Path", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.ReversePath, 0);
+                        });
                     });
-                });
+                }
             }
 
             s_DraggedPort = null;

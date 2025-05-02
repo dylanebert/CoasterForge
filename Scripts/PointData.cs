@@ -104,12 +104,15 @@ namespace CoasterForge {
             SetRoll(Roll);
         }
 
-        public void SetVelocity(float velocity) {
-            if (velocity < EPSILON) {
-                velocity = EPSILON;
-            }
+        public void Reverse() {
+            Direction = -Direction;
+            Lateral = -Lateral;
+            SetRoll(-Roll);
+        }
+
+        public void SetVelocity(float velocity, float lengthCompensation = 0f) {
             Velocity = velocity;
-            Energy = this.ComputeEnergy();
+            Energy = this.ComputeEnergy(lengthCompensation);
         }
 
         public override string ToString() {

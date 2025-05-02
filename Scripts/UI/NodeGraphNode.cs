@@ -102,8 +102,8 @@ namespace CoasterForge.UI {
                     marginBottom = 0f,
                     paddingLeft = 0f,
                     paddingRight = 0f,
-                    paddingTop = 0f,
-                    paddingBottom = 0f,
+                    paddingTop = 4f,
+                    paddingBottom = 4f,
                     backgroundColor = s_HeaderColor
                 }
             };

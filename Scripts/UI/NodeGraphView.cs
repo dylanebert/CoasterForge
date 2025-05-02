@@ -47,7 +47,7 @@ namespace CoasterForge.UI {
         public bool BoxSelecting => _boxSelecting;
 
         public event Action<Vector2, NodeType> AddNodeRequested;
-        public event Action<NodeGraphPort, Vector2, NodeType> AddConnectedNodeRequested;
+        public event Action<NodeGraphPort, Vector2, NodeType, int> AddConnectedNodeRequested;
         public event Action RemoveSelectedRequested;
         public event Action<List<NodeGraphNode>, float2> MoveNodesRequested;
         public event Action<NodeGraphPort, NodeGraphPort> ConnectionRequested;
@@ -351,17 +351,23 @@ namespace CoasterForge.UI {
                 Vector2 position = evt.localMousePosition;
                 Vector2 contentPosition = (position - _offset) / _zoom;
                 this.ShowContextMenu(position, menu => {
-                    menu.AddItem("Add Anchor", () => {
+                    menu.AddItem("Anchor", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.Anchor);
                     });
-                    menu.AddItem("Add Force Section", () => {
+                    menu.AddItem("Force Section", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.ForceSection);
                     });
-                    menu.AddItem("Add Geometric Section", () => {
+                    menu.AddItem("Geometric Section", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.GeometricSection);
                     });
-                    menu.AddItem("Add Copy Path", () => {
+                    menu.AddItem("Reverse", () => {
+                        AddNodeRequested?.Invoke(contentPosition, NodeType.Reverse);
+                    });
+                    menu.AddItem("Copy Path", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.CopyPath);
+                    });
+                    menu.AddItem("Reverse Path", () => {
+                        AddNodeRequested?.Invoke(contentPosition, NodeType.ReversePath);
                     });
                 });
             }
@@ -545,8 +551,13 @@ namespace CoasterForge.UI {
             _snapY = false;
         }
 
-        public void InvokeAddConnectedNodeRequest(NodeGraphPort source, Vector2 position, NodeType nodeType) {
-            AddConnectedNodeRequested?.Invoke(source, position, nodeType);
+        public void InvokeAddConnectedNodeRequest(
+            NodeGraphPort source,
+            Vector2 position,
+            NodeType nodeType,
+            int index
+        ) {
+            AddConnectedNodeRequested?.Invoke(source, position, nodeType, index);
         }
 
         public void InvokeRemoveSelectedRequest() {

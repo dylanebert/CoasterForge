@@ -2,7 +2,6 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Transforms;
 using static CoasterForge.Constants;
 
 namespace CoasterForge {
@@ -71,10 +70,10 @@ namespace CoasterForge {
                 float distance = pathBuffer[0].Value.TotalLength;
                 float endDistance = pathBuffer[^1].Value.TotalLength;
                 int index = 0;
-                int iter = 0;
+                int iters = 0;
                 while (distance < endDistance) {
-                    if (iter++ > 10000) {
-                        UnityEngine.Debug.LogError("BuildCopyPathSystem: Exceeded max iterations");
+                    if (iters++ > 10000) {
+                        UnityEngine.Debug.LogError("BuildCopyPathSystem: Infinite loop");
                         break;
                     }
 

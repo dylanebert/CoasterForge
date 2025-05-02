@@ -15,6 +15,8 @@ namespace CoasterForge.UI {
             { NodeType.ForceSection, "Force Section" },
             { NodeType.GeometricSection, "Geometric Section" },
             { NodeType.CopyPath, "Copy Path" },
+            { NodeType.Reverse, "Reverse" },
+            { NodeType.ReversePath, "Reverse Path" },
         };
 
         private Dictionary<Entity, NodeGraphNode> _nodeMap = new();
@@ -305,7 +307,8 @@ namespace CoasterForge.UI {
 
             if (nodeType == NodeType.ForceSection
                 || nodeType == NodeType.GeometricSection
-                || nodeType == NodeType.CopyPath) {
+                || nodeType == NodeType.CopyPath
+                || nodeType == NodeType.Reverse) {
                 var inputPort = ecb.CreateEntity();
                 name = "Input";
                 ecb.AddComponent<Name>(inputPort, name);
@@ -317,7 +320,8 @@ namespace CoasterForge.UI {
                 ecb.SetName(inputPort, name);
             }
 
-            if (nodeType == NodeType.CopyPath) {
+            if (nodeType == NodeType.CopyPath
+                || nodeType == NodeType.ReversePath) {
                 var pathPort = ecb.CreateEntity();
                 name = "Path";
                 ecb.AddComponent<Name>(pathPort, name);
@@ -348,7 +352,8 @@ namespace CoasterForge.UI {
 
             if (nodeType == NodeType.ForceSection
                 || nodeType == NodeType.GeometricSection
-                || nodeType == NodeType.CopyPath) {
+                || nodeType == NodeType.CopyPath
+                || nodeType == NodeType.ReversePath) {
                 ecb.AddBuffer<Point>(node);
             }
 
@@ -378,19 +383,33 @@ namespace CoasterForge.UI {
             if (nodeType == NodeType.CopyPath) {
                 ecb.AddComponent<CopyPathTag>(node);
             }
+            else if (nodeType == NodeType.Reverse) {
+                ecb.AddComponent<ReverseTag>(node);
+            }
+            else if (nodeType == NodeType.ReversePath) {
+                ecb.AddComponent<ReversePathTag>(node);
+            }
 
             ecb.AddBuffer<OutputPortReference>(node);
-            var outputPort = ecb.CreateEntity();
-            name = "Output";
-            ecb.AddComponent<Name>(outputPort, name);
-            ecb.AddComponent<Port>(outputPort, PortType.Anchor);
-            ecb.AddComponent(outputPort, Uuid.Create());
-            ecb.AddComponent<Dirty>(outputPort);
-            ecb.AddComponent<AnchorPort>(outputPort, anchor);
-            ecb.AppendToBuffer<OutputPortReference>(node, outputPort);
-            ecb.SetName(outputPort, name);
+            if (nodeType == NodeType.Anchor
+                || nodeType == NodeType.ForceSection
+                || nodeType == NodeType.GeometricSection
+                || nodeType == NodeType.CopyPath
+                || nodeType == NodeType.Reverse) {
+                var outputPort = ecb.CreateEntity();
+                name = "Output";
+                ecb.AddComponent<Name>(outputPort, name);
+                ecb.AddComponent<Port>(outputPort, PortType.Anchor);
+                ecb.AddComponent(outputPort, Uuid.Create());
+                ecb.AddComponent<Dirty>(outputPort);
+                ecb.AddComponent<AnchorPort>(outputPort, anchor);
+                ecb.AppendToBuffer<OutputPortReference>(node, outputPort);
+                ecb.SetName(outputPort, name);
+            }
 
-            if (nodeType == NodeType.ForceSection || nodeType == NodeType.GeometricSection) {
+            if (nodeType == NodeType.ForceSection
+                || nodeType == NodeType.GeometricSection
+                || nodeType == NodeType.ReversePath) {
                 var pathPort = ecb.CreateEntity();
                 name = "Path";
                 ecb.AddComponent<Name>(pathPort, name);
@@ -414,22 +433,24 @@ namespace CoasterForge.UI {
             AddNode(position, nodeType);
         }
 
-        private void OnAddConnectedNodeRequested(NodeGraphPort source, Vector2 position, NodeType nodeType) {
+        private void OnAddConnectedNodeRequested(
+            NodeGraphPort source,
+            Vector2 position,
+            NodeType nodeType,
+            int index
+        ) {
+            if (source.IsInput) {
+                throw new NotImplementedException("Can't request connected node from input port");
+            }
+
             UndoManager.Record();
 
             var node = AddNode(position, nodeType);
             Entity sourceEntity = Entity.Null;
             Entity targetEntity = Entity.Null;
-            if (source.IsInput) {
-                var outputs = SystemAPI.GetBuffer<OutputPortReference>(node);
-                sourceEntity = outputs[0].Value;
-                targetEntity = source.Entity;
-            }
-            else {
-                var inputs = SystemAPI.GetBuffer<InputPortReference>(node);
-                sourceEntity = source.Entity;
-                targetEntity = inputs[0].Value;
-            }
+            var inputs = SystemAPI.GetBuffer<InputPortReference>(node);
+            sourceEntity = source.Entity;
+            targetEntity = inputs[index].Value;
             AddConnection(sourceEntity, targetEntity);
         }
 
@@ -852,7 +873,8 @@ namespace CoasterForge.UI {
 
                 if (node.Type == NodeType.ForceSection
                     || node.Type == NodeType.GeometricSection
-                    || node.Type == NodeType.CopyPath) {
+                    || node.Type == NodeType.CopyPath
+                    || node.Type == NodeType.ReversePath) {
                     ecb.AddBuffer<Point>(entity);
                 }
 
@@ -893,6 +915,12 @@ namespace CoasterForge.UI {
 
                 if (node.Type == NodeType.CopyPath) {
                     ecb.AddComponent<CopyPathTag>(entity);
+                }
+                else if (node.Type == NodeType.Reverse) {
+                    ecb.AddComponent<ReverseTag>(entity);
+                }
+                else if (node.Type == NodeType.ReversePath) {
+                    ecb.AddComponent<ReversePathTag>(entity);
                 }
 
                 ecb.AddBuffer<OutputPortReference>(entity);

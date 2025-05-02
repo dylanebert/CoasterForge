@@ -66,6 +66,17 @@ namespace CoasterForge {
                     PointData prev = section.Points[i - 1];
                     PointData curr = prev;
 
+                    if (curr.Velocity < EPSILON) {
+                        float pitch = curr.GetPitch();
+                        if (pitch < -EPSILON) {
+                            curr.SetVelocity(MIN_VELOCITY, curr.TotalLength);
+                        }
+                        else {
+                            UnityEngine.Debug.LogWarning("Velocity is too low");
+                            break;
+                        }
+                    }
+
                     float t = i / HZ;
                     float rollSpeed = section.RollSpeedKeyframes.Evaluate(t);
                     float pitchChangeRate = section.PitchSpeedKeyframes.Evaluate(t);
@@ -78,11 +89,6 @@ namespace CoasterForge {
 
                     UpdateGeometricPoint(section, ref curr, prev, deltaRoll, deltaPitch, deltaYaw);
                     section.Points.Add(curr);
-
-                    if (curr.Velocity < EPSILON) {
-                        UnityEngine.Debug.LogWarning("Velocity is too low");
-                        break;
-                    }
                 }
             }
 
@@ -91,6 +97,17 @@ namespace CoasterForge {
                 while (section.Points[^1].Value.TotalLength < endLength) {
                     PointData prev = section.Points[^1];
                     PointData curr = prev;
+
+                    if (curr.Velocity < EPSILON) {
+                        float pitch = curr.GetPitch();
+                        if (pitch < -EPSILON) {
+                            curr.SetVelocity(MIN_VELOCITY, curr.TotalLength);
+                        }
+                        else {
+                            UnityEngine.Debug.LogWarning("Velocity is too low");
+                            break;
+                        }
+                    }
 
                     float d = section.Points[^1].Value.TotalLength;
                     float rollSpeedPerMeter = section.RollSpeedKeyframes.Evaluate(d);
@@ -104,11 +121,6 @@ namespace CoasterForge {
 
                     UpdateGeometricPoint(section, ref curr, prev, deltaRoll, deltaPitch, deltaYaw);
                     section.Points.Add(curr);
-
-                    if (curr.Velocity < EPSILON) {
-                        UnityEngine.Debug.LogWarning("Velocity is too low");
-                        break;
-                    }
                 }
             }
 

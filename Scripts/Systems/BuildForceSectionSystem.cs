@@ -66,6 +66,17 @@ namespace CoasterForge {
                     PointData prev = section.Points[i - 1];
                     PointData curr = prev;
 
+                    if (curr.Velocity < EPSILON) {
+                        float pitch = curr.GetPitch();
+                        if (pitch < -EPSILON) {
+                            curr.SetVelocity(MIN_VELOCITY, curr.TotalLength);
+                        }
+                        else {
+                            UnityEngine.Debug.LogWarning("Velocity is too low");
+                            break;
+                        }
+                    }
+
                     // Assign target constraints values
                     float t = i / HZ;
                     curr.RollSpeed = section.RollSpeedKeyframes.Evaluate(t);
@@ -74,11 +85,6 @@ namespace CoasterForge {
 
                     UpdateForcePoint(section, ref curr, ref prev);
                     section.Points.Add(curr);
-
-                    if (curr.Velocity < EPSILON) {
-                        UnityEngine.Debug.LogWarning("Velocity is too low");
-                        break;
-                    }
                 }
             }
 
@@ -88,6 +94,17 @@ namespace CoasterForge {
                     PointData prev = section.Points[^1];
                     PointData curr = prev;
 
+                    if (curr.Velocity < EPSILON) {
+                        float pitch = curr.GetPitch();
+                        if (pitch < -EPSILON) {
+                            curr.SetVelocity(MIN_VELOCITY, curr.TotalLength);
+                        }
+                        else {
+                            UnityEngine.Debug.LogWarning("Velocity is too low");
+                            break;
+                        }
+                    }
+
                     float d = prev.TotalLength + prev.Velocity / HZ;
                     curr.RollSpeed = section.RollSpeedKeyframes.Evaluate(d);
                     curr.NormalForce = section.NormalForceKeyframes.Evaluate(d);
@@ -95,11 +112,6 @@ namespace CoasterForge {
 
                     UpdateForcePoint(section, ref curr, ref prev);
                     section.Points.Add(curr);
-
-                    if (curr.Velocity < EPSILON) {
-                        UnityEngine.Debug.LogWarning("Velocity is too low");
-                        break;
-                    }
                 }
             }
 

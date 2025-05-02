@@ -11,5 +11,6 @@ namespace CoasterForge {
         public const float TIE_SPACING = 0.8f; // Distance between track ties in meters
         public const float FRONT_WHEEL_OFFSET = 0.75f;
         public const float REAR_WHEEL_OFFSET = -0.75f;
+        public const float MIN_VELOCITY = 1e-3f;
     }
 }
