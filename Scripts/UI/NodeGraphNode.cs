@@ -8,6 +8,7 @@ namespace CoasterForge.UI {
         private static readonly Color s_DividerColor = new(0.2f, 0.2f, 0.2f);
         private static readonly Color s_BackgroundColor = new(0.25f, 0.25f, 0.25f, 0.8f);
         private static readonly Color s_HeaderColor = new(0.3f, 0.3f, 0.3f, 0.8f);
+        private static readonly Color s_HoverColor = new(0.35f, 0.35f, 0.35f, 0.8f);
 
         private static readonly Color s_HoverOutlineColor = new(0.2f, 0.5f, 0.9f, 0.3f);
         private static readonly Color s_SelectedOutlineColor = new(0.2f, 0.5f, 0.9f);
@@ -28,6 +29,8 @@ namespace CoasterForge.UI {
         private LabeledToggle _renderToggle;
         private VisualElement _footerDivider;
         private VisualElement _footer;
+        private VisualElement _itemsContainer;
+        private Button _collapseButton;
         private Vector2 _dragStart;
         private Vector2 _mouseStart;
         private bool _hovering;
@@ -77,14 +80,10 @@ namespace CoasterForge.UI {
             style.marginRight = 0f;
             style.marginTop = 0f;
             style.marginBottom = 0f;
-            style.paddingLeft = 2f;
-            style.paddingRight = 2f;
-            style.paddingTop = 2f;
-            style.paddingBottom = 2f;
-            style.borderTopLeftRadius = 8f;
-            style.borderTopRightRadius = 8f;
-            style.borderBottomLeftRadius = 8f;
-            style.borderBottomRightRadius = 8f;
+            style.paddingLeft = 0f;
+            style.paddingRight = 0f;
+            style.paddingTop = 0f;
+            style.paddingBottom = 0f;
             style.borderTopWidth = 2f;
             style.borderBottomWidth = 2f;
             style.borderLeftWidth = 2f;
@@ -111,8 +110,8 @@ namespace CoasterForge.UI {
             };
             _header.Add(new Label(name) {
                 style = {
-                    marginLeft = 6f,
-                    marginRight = 6f,
+                    marginLeft = 8f,
+                    marginRight = 8f,
                     marginTop = 6f,
                     marginBottom = 6f,
                     paddingLeft = 0f,
@@ -213,59 +212,6 @@ namespace CoasterForge.UI {
             };
             _contents.Add(_outputsContainer);
 
-            if (_type == NodeType.ForceSection
-                || _type == NodeType.GeometricSection
-                || _type == NodeType.CopyPath) {
-                var itemsDivider = new VisualElement {
-                    style = {
-                        position = Position.Relative,
-                        height = 1f,
-                        paddingLeft = 0f,
-                        paddingRight = 0f,
-                        paddingTop = 0f,
-                        paddingBottom = 0f,
-                        marginLeft = 0f,
-                        marginRight = 0f,
-                        marginTop = 0f,
-                        marginBottom = 0f,
-                        backgroundColor = s_DividerColor
-                    }
-                };
-                Add(itemsDivider);
-
-                var itemsContainer = new VisualElement {
-                    style = {
-                        position = Position.Relative,
-                        flexDirection = FlexDirection.Column,
-                        alignItems = Align.Stretch,
-                        justifyContent = Justify.FlexStart,
-                        paddingLeft = 0f,
-                        paddingRight = 0f,
-                        paddingTop = 4f,
-                        paddingBottom = 4f,
-                        marginLeft = 0f,
-                        marginRight = 0f,
-                        marginTop = 0f,
-                        marginBottom = 0f,
-                        backgroundColor = s_HeaderColor
-                    }
-                };
-                Add(itemsContainer);
-
-                if (_type == NodeType.ForceSection
-                    || _type == NodeType.GeometricSection) {
-                    _durationTypeField = new LabeledEnumField<DurationType>(this, "Type", DurationType.Time);
-                    itemsContainer.Add(_durationTypeField);
-
-                    _durationTypeField.ValueChanged += OnDurationTypeChanged;
-                }
-
-                _renderToggle = new LabeledToggle(this, "Render", render);
-                itemsContainer.Add(_renderToggle);
-
-                _renderToggle.Toggle.RegisterValueChangedCallback(OnRenderToggleChanged);
-            }
-
             _footerDivider = new VisualElement {
                 style = {
                     position = Position.Relative,
@@ -302,6 +248,69 @@ namespace CoasterForge.UI {
             };
             Add(_footer);
 
+            if (_type == NodeType.ForceSection
+                || _type == NodeType.GeometricSection
+                || _type == NodeType.PathSection) {
+                _itemsContainer = new VisualElement {
+                    style = {
+                        position = Position.Relative,
+                        flexDirection = FlexDirection.Column,
+                        alignItems = Align.Stretch,
+                        justifyContent = Justify.FlexStart,
+                        paddingLeft = 0f,
+                        paddingRight = 0f,
+                        paddingTop = 4f,
+                        paddingBottom = 4f,
+                        marginLeft = 0f,
+                        marginRight = 0f,
+                        marginTop = 0f,
+                        marginBottom = 0f,
+                        backgroundColor = s_HeaderColor,
+                        display = DisplayStyle.None
+                    }
+                };
+                _footer.Add(_itemsContainer);
+
+                if (_type == NodeType.ForceSection
+                    || _type == NodeType.GeometricSection) {
+                    _durationTypeField = new LabeledEnumField<DurationType>(this, "Type", DurationType.Time);
+                    _itemsContainer.Add(_durationTypeField);
+
+                    _durationTypeField.ValueChanged += OnDurationTypeChanged;
+                }
+
+                _renderToggle = new LabeledToggle(this, "Render", render);
+                _itemsContainer.Add(_renderToggle);
+
+                _renderToggle.Toggle.RegisterValueChangedCallback(OnRenderToggleChanged);
+
+                _collapseButton = new Button {
+                    style = {
+                        position = Position.Relative,
+                        paddingLeft = 0f,
+                        paddingRight = 0f,
+                        paddingTop = 3f,
+                        paddingBottom = 3f,
+                        marginLeft = 0f,
+                        marginRight = 0f,
+                        marginTop = 0f,
+                        marginBottom = 0f,
+                        backgroundColor = Color.clear,
+                        borderTopWidth = 0f,
+                        borderBottomWidth = 0f,
+                        borderLeftWidth = 0f,
+                        borderRightWidth = 0f,
+                        fontSize = 9f
+                    },
+                    text = "▼"
+                };
+                _footer.Add(_collapseButton);
+
+                _collapseButton.RegisterCallback<ClickEvent>(OnCollapseButtonClicked);
+                _collapseButton.RegisterCallback<MouseOverEvent>(OnCollapseButtonMouseOver);
+                _collapseButton.RegisterCallback<MouseOutEvent>(OnCollapseButtonMouseOut);
+            }
+
             UpdateInputPorts(inputPorts);
             UpdateOutputPorts(outputPorts);
 
@@ -312,6 +321,25 @@ namespace CoasterForge.UI {
             RegisterCallback<MouseDownEvent>(OnMouseDown);
             RegisterCallback<MouseMoveEvent>(OnMouseMove);
             RegisterCallback<MouseUpEvent>(OnMouseUp);
+        }
+
+        private void OnCollapseButtonMouseOver(MouseOverEvent evt) {
+            _collapseButton.style.backgroundColor = s_HoverColor;
+            evt.StopPropagation();
+        }
+
+        private void OnCollapseButtonMouseOut(MouseOutEvent evt) {
+            _collapseButton.style.backgroundColor = Color.clear;
+            evt.StopPropagation();
+        }
+
+        private void OnCollapseButtonClicked(ClickEvent evt) {
+            bool collapsed = _itemsContainer.style.display == DisplayStyle.None;
+            collapsed = !collapsed;
+            _itemsContainer.style.display = collapsed ? DisplayStyle.None : DisplayStyle.Flex;
+            _collapseButton.text = collapsed ? "▼" : "▲";
+
+            evt.StopPropagation();
         }
 
         private void UpdateInputPorts(List<PortData> inputPorts) {

@@ -6,7 +6,7 @@ using static CoasterForge.Constants;
 
 namespace CoasterForge {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
-    public partial struct BuildCopyPathSystem : ISystem {
+    public partial struct BuildPathSectionSystem : ISystem {
         private ComponentLookup<AnchorPort> _anchorPortLookup;
         private BufferLookup<PathPort> _pathPortLookup;
 
@@ -39,12 +39,12 @@ namespace CoasterForge {
             [ReadOnly]
             public BufferLookup<PathPort> PathPortLookup;
 
-            public void Execute([ChunkIndexInQuery] int chunkIndex, Entity entity, CopyPathAspect section) {
+            public void Execute([ChunkIndexInQuery] int chunkIndex, Entity entity, PathSectionAspect section) {
                 if (!section.Dirty) return;
 
                 if (section.InputPorts.Length < 2
                     || !PathPortLookup.TryGetBuffer(section.InputPorts[1], out var pathBuffer)) {
-                    UnityEngine.Debug.LogError("BuildCopyPathSystem: No path port found");
+                    UnityEngine.Debug.LogError("BuildPathSectionSystem: No path port found");
                     return;
                 }
 
@@ -73,7 +73,7 @@ namespace CoasterForge {
                 int iters = 0;
                 while (distance < endDistance) {
                     if (iters++ > 10000) {
-                        UnityEngine.Debug.LogError("BuildCopyPathSystem: Infinite loop");
+                        UnityEngine.Debug.LogError("BuildPathSectionSystem: Infinite loop");
                         break;
                     }
 
@@ -101,7 +101,7 @@ namespace CoasterForge {
                     Ecb.SetComponent(chunkIndex, section.OutputPorts[0], anchorPort);
                 }
                 else {
-                    UnityEngine.Debug.LogWarning("BuildCopyPathSystem: No anchor port found");
+                    UnityEngine.Debug.LogWarning("BuildPathSectionSystem: No anchor port found");
                 }
 
                 foreach (var port in section.OutputPorts) {
@@ -112,7 +112,7 @@ namespace CoasterForge {
             }
 
             private void UpdateCopyPoint(
-                CopyPathAspect section,
+                PathSectionAspect section,
                 ref PointData curr,
                 in PointData prev,
                 ref DynamicBuffer<PathPort> pathBuffer,

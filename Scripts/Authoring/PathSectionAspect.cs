@@ -1,11 +1,11 @@
 using Unity.Entities;
 
 namespace CoasterForge {
-    public readonly partial struct CopyPathAspect : IAspect {
+    public readonly partial struct PathSectionAspect : IAspect {
         public readonly Entity Self;
 
         private readonly RefRO<Anchor> AnchorRO;
-        private readonly RefRO<CopyPathTag> CopyPathTagRO;
+        private readonly RefRO<PathSectionTag> PathSectionTagRO;
 
         private readonly RefRW<Dirty> DirtyRW;
 
@@ -21,6 +21,6 @@ namespace CoasterForge {
             set => DirtyRW.ValueRW.Value = value;
         }
 
-        public CopyPathTag CopyPathTag => CopyPathTagRO.ValueRO;
+        public PathSectionTag PathSectionTag => PathSectionTagRO.ValueRO;
     }
 }

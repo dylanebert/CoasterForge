@@ -16,10 +16,10 @@ namespace CoasterForge {
     }
 
     public enum NodeType {
-        Anchor,
         ForceSection,
         GeometricSection,
-        CopyPath,
+        PathSection,
+        Anchor,
         Reverse,
         ReversePath,
     }

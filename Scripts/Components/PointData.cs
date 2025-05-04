@@ -1,6 +1,5 @@
 using System.Text;
 using Unity.Mathematics;
-using static CoasterForge.Constants;
 
 namespace CoasterForge {
     [System.Serializable]

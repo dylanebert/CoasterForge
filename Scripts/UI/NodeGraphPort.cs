@@ -247,8 +247,8 @@ namespace CoasterForge.UI {
                         menu.AddItem("Geometric Section", () => {
                             _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.GeometricSection, 0);
                         });
-                        menu.AddItem("Copy Path", () => {
-                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.CopyPath, 0);
+                        menu.AddItem("Path Section", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.PathSection, 0);
                         });
                         menu.AddItem("Reverse", () => {
                             _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.Reverse, 0);
@@ -261,8 +261,8 @@ namespace CoasterForge.UI {
                     Vector2 viewPosition = _view.WorldToLocal(worldPosition);
                     Vector2 contentPosition = (viewPosition - _view.Offset) / _view.Zoom;
                     _view.ShowContextMenu(viewPosition, menu => {
-                        menu.AddItem("Copy Path", () => {
-                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.CopyPath, 1);
+                        menu.AddItem("Path Section", () => {
+                            _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.PathSection, 1);
                         });
                         menu.AddItem("Reverse Path", () => {
                             _view.InvokeAddConnectedNodeRequest(this, contentPosition, NodeType.ReversePath, 0);

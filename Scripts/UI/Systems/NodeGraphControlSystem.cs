@@ -11,10 +11,10 @@ namespace CoasterForge.UI {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial class NodeGraphControlSystem : SystemBase {
         private readonly Dictionary<NodeType, string> _names = new() {
-            { NodeType.Anchor, "Anchor" },
             { NodeType.ForceSection, "Force Section" },
             { NodeType.GeometricSection, "Geometric Section" },
-            { NodeType.CopyPath, "Copy Path" },
+            { NodeType.PathSection, "Path Section" },
+            { NodeType.Anchor, "Anchor" },
             { NodeType.Reverse, "Reverse" },
             { NodeType.ReversePath, "Reverse Path" },
         };
@@ -156,7 +156,7 @@ namespace CoasterForge.UI {
                     NodeType type = SystemAPI.GetComponent<Node>(entity);
                     bool render = type switch {
                         NodeType.ForceSection or NodeType.GeometricSection
-                        or NodeType.CopyPath => SystemAPI.GetComponent<Render>(entity),
+                        or NodeType.PathSection => SystemAPI.GetComponent<Render>(entity),
                         _ => false,
                     };
                     uiNode = _view.AddNode(name, entity, type, render, uiPosition, _inputPortData, _outputPortData);
@@ -319,7 +319,7 @@ namespace CoasterForge.UI {
 
             if (nodeType == NodeType.ForceSection
                 || nodeType == NodeType.GeometricSection
-                || nodeType == NodeType.CopyPath
+                || nodeType == NodeType.PathSection
                 || nodeType == NodeType.Reverse) {
                 var inputPort = ecb.CreateEntity();
                 name = "Input";
@@ -332,7 +332,7 @@ namespace CoasterForge.UI {
                 ecb.SetName(inputPort, name);
             }
 
-            if (nodeType == NodeType.CopyPath
+            if (nodeType == NodeType.PathSection
                 || nodeType == NodeType.ReversePath) {
                 var pathPort = ecb.CreateEntity();
                 name = "Path";
@@ -364,14 +364,14 @@ namespace CoasterForge.UI {
 
             if (nodeType == NodeType.ForceSection
                 || nodeType == NodeType.GeometricSection
-                || nodeType == NodeType.CopyPath
+                || nodeType == NodeType.PathSection
                 || nodeType == NodeType.ReversePath) {
                 ecb.AddBuffer<Point>(node);
             }
 
             if (nodeType == NodeType.ForceSection
                 || nodeType == NodeType.GeometricSection
-                || nodeType == NodeType.CopyPath) {
+                || nodeType == NodeType.PathSection) {
                 ecb.AddComponent<Render>(node, render);
             }
 
@@ -398,8 +398,8 @@ namespace CoasterForge.UI {
                 }
             }
 
-            if (nodeType == NodeType.CopyPath) {
-                ecb.AddComponent<CopyPathTag>(node);
+            if (nodeType == NodeType.PathSection) {
+                ecb.AddComponent<PathSectionTag>(node);
             }
             else if (nodeType == NodeType.Reverse) {
                 ecb.AddComponent<ReverseTag>(node);
@@ -412,7 +412,7 @@ namespace CoasterForge.UI {
             if (nodeType == NodeType.Anchor
                 || nodeType == NodeType.ForceSection
                 || nodeType == NodeType.GeometricSection
-                || nodeType == NodeType.CopyPath
+                || nodeType == NodeType.PathSection
                 || nodeType == NodeType.Reverse) {
                 var outputPort = ecb.CreateEntity();
                 name = "Output";
@@ -699,7 +699,7 @@ namespace CoasterForge.UI {
                 };
                 bool render = type switch {
                     NodeType.ForceSection or NodeType.GeometricSection
-                    or NodeType.CopyPath => SystemAPI.GetComponent<Render>(nodeEntity),
+                    or NodeType.PathSection => SystemAPI.GetComponent<Render>(nodeEntity),
                     _ => false,
                 };
                 DynamicBuffer<RollSpeedKeyframe>? rollSpeedKeyframeBuffer = type switch {
@@ -904,14 +904,14 @@ namespace CoasterForge.UI {
 
                 if (node.Type == NodeType.ForceSection
                     || node.Type == NodeType.GeometricSection
-                    || node.Type == NodeType.CopyPath
+                    || node.Type == NodeType.PathSection
                     || node.Type == NodeType.ReversePath) {
                     ecb.AddBuffer<Point>(entity);
                 }
 
                 if (node.Type == NodeType.ForceSection
                     || node.Type == NodeType.GeometricSection
-                    || node.Type == NodeType.CopyPath) {
+                    || node.Type == NodeType.PathSection) {
                     ecb.AddComponent<Render>(entity, node.Render);
                 }
 
@@ -950,8 +950,8 @@ namespace CoasterForge.UI {
                     }
                 }
 
-                if (node.Type == NodeType.CopyPath) {
-                    ecb.AddComponent<CopyPathTag>(entity);
+                if (node.Type == NodeType.PathSection) {
+                    ecb.AddComponent<PathSectionTag>(entity);
                 }
                 else if (node.Type == NodeType.Reverse) {
                     ecb.AddComponent<ReverseTag>(entity);

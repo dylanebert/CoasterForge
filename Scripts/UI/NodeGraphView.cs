@@ -38,6 +38,10 @@ namespace CoasterForge.UI {
         private bool _panning;
         private bool _boxSelecting;
 
+        private enum SnapType { None, Center, Left, Right, Top, Bottom }
+        private SnapType _snapXType = SnapType.None;
+        private SnapType _snapYType = SnapType.None;
+
         public List<NodeGraphNode> SelectedNodes => _selectedNodes;
         public List<Edge> SelectedEdges => _selectedEdges;
         public VisualElement ConnectionsLayer => _connectionsLayer;
@@ -63,10 +67,6 @@ namespace CoasterForge.UI {
             style.right = 0;
             style.top = 0;
             style.bottom = 0;
-            style.borderTopLeftRadius = 8f;
-            style.borderTopRightRadius = 8f;
-            style.borderBottomLeftRadius = 8f;
-            style.borderBottomRightRadius = 8f;
             style.overflow = Overflow.Visible;
 
             _tip = new Label("Right click to add node") {
@@ -349,24 +349,24 @@ namespace CoasterForge.UI {
                 evt.StopPropagation();
             }
 
-            else if (evt.button == 1 && evt.target == _container) {
+            else if (evt.button == 1 && evt.target == _container && !evt.altKey) {
                 Vector2 position = evt.localMousePosition;
                 Vector2 contentPosition = (position - _offset) / _zoom;
                 this.ShowContextMenu(position, menu => {
-                    menu.AddItem("Anchor", () => {
-                        AddNodeRequested?.Invoke(contentPosition, NodeType.Anchor);
-                    });
                     menu.AddItem("Force Section", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.ForceSection);
                     });
                     menu.AddItem("Geometric Section", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.GeometricSection);
                     });
+                    menu.AddItem("Path Section", () => {
+                        AddNodeRequested?.Invoke(contentPosition, NodeType.PathSection);
+                    });
+                    menu.AddItem("Anchor", () => {
+                        AddNodeRequested?.Invoke(contentPosition, NodeType.Anchor);
+                    });
                     menu.AddItem("Reverse", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.Reverse);
-                    });
-                    menu.AddItem("Copy Path", () => {
-                        AddNodeRequested?.Invoke(contentPosition, NodeType.CopyPath);
                     });
                     menu.AddItem("Reverse Path", () => {
                         AddNodeRequested?.Invoke(contentPosition, NodeType.ReversePath);
@@ -374,7 +374,7 @@ namespace CoasterForge.UI {
                 });
             }
 
-            if (evt.button == 2) {
+            if (evt.button == 2 || (evt.button == 1 && evt.altKey)) {
                 _panning = true;
                 _start = evt.localMousePosition;
                 this.CaptureMouse();
@@ -414,7 +414,7 @@ namespace CoasterForge.UI {
                 evt.StopPropagation();
             }
 
-            if (evt.button == 2 && _panning) {
+            if (_panning && (evt.button == 2 || (evt.button == 1 && evt.altKey))) {
                 _panning = false;
                 this.ReleaseMouse();
                 evt.StopPropagation();
@@ -444,13 +444,17 @@ namespace CoasterForge.UI {
             float minDy = float.MaxValue;
             float bestDx = 0f;
             float bestDy = 0f;
+            SnapType bestDxType = SnapType.None;
+            SnapType bestDyType = SnapType.None;
 
             // Dragged node's snap points
             float nodeLeft = desiredPosition.x;
             float nodeWidth = node.resolvedStyle.width;
+            float nodeRight = nodeLeft + nodeWidth;
             float nodeCenterX = nodeLeft + nodeWidth / 2f;
             float nodeTop = desiredPosition.y;
             float nodeHeight = node.resolvedStyle.height;
+            float nodeBottom = nodeTop + nodeHeight;
             float nodeCenterY = nodeTop + nodeHeight / 2f;
 
             foreach (NodeGraphNode other in _nodes) {
@@ -459,24 +463,62 @@ namespace CoasterForge.UI {
                 // Other node's snap points
                 float otherLeft = other.style.left.value.value;
                 float otherWidth = other.resolvedStyle.width;
+                float otherRight = otherLeft + otherWidth;
                 float otherCenterX = otherLeft + otherWidth / 2f;
                 float otherTop = other.style.top.value.value;
                 float otherHeight = other.resolvedStyle.height;
+                float otherBottom = otherTop + otherHeight;
                 float otherCenterY = otherTop + otherHeight / 2f;
 
-                // Vertical
-                float centerDx = otherCenterX - nodeCenterX;
-                if (Mathf.Abs(centerDx) < minDx && Mathf.Abs(centerDx) < threshold) {
-                    minDx = Mathf.Abs(centerDx);
-                    bestDx = centerDx;
+                // --- X axis (horizontal snapping) ---
+                // Center-to-center
+                float dx = otherCenterX - nodeCenterX;
+                if (Mathf.Abs(dx) < minDx && Mathf.Abs(dx) < threshold) {
+                    minDx = Mathf.Abs(dx);
+                    bestDx = dx;
+                    bestDxType = SnapType.Center;
+                    snappedNode = other;
+                }
+                // Left edge
+                dx = otherLeft - nodeLeft;
+                if (Mathf.Abs(dx) < minDx && Mathf.Abs(dx) < threshold) {
+                    minDx = Mathf.Abs(dx);
+                    bestDx = dx;
+                    bestDxType = SnapType.Left;
+                    snappedNode = other;
+                }
+                // Right edge
+                dx = otherRight - nodeRight;
+                if (Mathf.Abs(dx) < minDx && Mathf.Abs(dx) < threshold) {
+                    minDx = Mathf.Abs(dx);
+                    bestDx = dx;
+                    bestDxType = SnapType.Right;
                     snappedNode = other;
                 }
 
-                // Horizontal
-                float centerDy = otherCenterY - nodeCenterY;
-                if (Mathf.Abs(centerDy) < minDy && Mathf.Abs(centerDy) < threshold) {
-                    minDy = Mathf.Abs(centerDy);
-                    bestDy = centerDy;
+                // --- Y axis (vertical snapping) ---
+                // Center-to-center
+                float dy = otherCenterY - nodeCenterY;
+                if (Mathf.Abs(dy) < minDy && Mathf.Abs(dy) < threshold) {
+                    minDy = Mathf.Abs(dy);
+                    bestDy = dy;
+                    bestDyType = SnapType.Center;
+                    snappedNode = other;
+                }
+                // Top edge
+                dy = otherTop - nodeTop;
+                if (Mathf.Abs(dy) < minDy && Mathf.Abs(dy) < threshold) {
+                    minDy = Mathf.Abs(dy);
+                    bestDy = dy;
+                    bestDyType = SnapType.Top;
+                    snappedNode = other;
+                }
+                // Bottom edge
+                dy = otherBottom - nodeBottom;
+                if (Mathf.Abs(dy) < minDy && Mathf.Abs(dy) < threshold) {
+                    minDy = Mathf.Abs(dy);
+                    bestDy = dy;
+                    bestDyType = SnapType.Bottom;
                     snappedNode = other;
                 }
             }
@@ -485,14 +527,18 @@ namespace CoasterForge.UI {
             _snapX = false;
             _snapY = false;
             _lastSnappedNode = snappedNode;
+            _snapXType = SnapType.None;
+            _snapYType = SnapType.None;
 
             if (minDx < threshold) {
                 snappedPosition.x += bestDx;
                 _snapX = true;
+                _snapXType = bestDxType;
             }
             if (minDy < threshold) {
                 snappedPosition.y += bestDy;
                 _snapY = true;
+                _snapYType = bestDyType;
             }
 
             UpdateGuides(node, snappedPosition);
@@ -508,37 +554,58 @@ namespace CoasterForge.UI {
 
             float nodeWidth = node.resolvedStyle.width;
             float nodeHeight = node.resolvedStyle.height;
-            float nodeCenterX = snappedPosition.x + nodeWidth / 2f;
-            float nodeCenterY = snappedPosition.y + nodeHeight / 2f;
+            float nodeLeft = snappedPosition.x;
+            float nodeRight = nodeLeft + nodeWidth;
+            float nodeCenterX = nodeLeft + nodeWidth / 2f;
+            float nodeTop = snappedPosition.y;
+            float nodeBottom = nodeTop + nodeHeight;
+            float nodeCenterY = nodeTop + nodeHeight / 2f;
 
             float otherLeft = _lastSnappedNode.style.left.value.value;
             float otherWidth = _lastSnappedNode.resolvedStyle.width;
+            float otherRight = otherLeft + otherWidth;
             float otherCenterX = otherLeft + otherWidth / 2f;
             float otherTop = _lastSnappedNode.style.top.value.value;
             float otherHeight = _lastSnappedNode.resolvedStyle.height;
+            float otherBottom = otherTop + otherHeight;
             float otherCenterY = otherTop + otherHeight / 2f;
 
-            float minX = Mathf.Min(snappedPosition.x, otherLeft) - 1000f;
-            float maxX = Mathf.Max(snappedPosition.x + nodeWidth, otherLeft + otherWidth) + 1000f;
-            float minY = Mathf.Min(snappedPosition.y, otherTop) - 1000f;
-            float maxY = Mathf.Max(snappedPosition.y + nodeHeight, otherTop + otherHeight) + 1000f;
+            float minX = Mathf.Min(nodeLeft, otherLeft) - 1000f;
+            float maxX = Mathf.Max(nodeRight, otherRight) + 1000f;
+            float minY = Mathf.Min(nodeTop, otherTop) - 1000f;
+            float maxY = Mathf.Max(nodeBottom, otherBottom) + 1000f;
 
-            float containerCenterX = nodeCenterX * _zoom + _offset.x;
-            float containerCenterY = nodeCenterY * _zoom + _offset.y;
-            float containerMinX = minX * _zoom + _offset.x;
-            float containerMaxX = maxX * _zoom + _offset.x;
-            float containerMinY = minY * _zoom + _offset.y;
-            float containerMaxY = maxY * _zoom + _offset.y;
-
+            // Draw vertical guide (X axis)
             if (_snapX) {
-                _verticalGuide.style.left = containerCenterX;
+                float guideX = 0f;
+                switch (_snapXType) {
+                    case SnapType.Center: guideX = nodeCenterX; break;
+                    case SnapType.Left: guideX = nodeLeft; break;
+                    case SnapType.Right: guideX = nodeRight; break;
+                }
+                float containerGuideX = guideX * _zoom + _offset.x;
+                float containerMinY = minY * _zoom + _offset.y;
+                float containerMaxY = maxY * _zoom + _offset.y;
+
+                _verticalGuide.style.left = containerGuideX;
                 _verticalGuide.style.top = containerMinY;
                 _verticalGuide.style.height = containerMaxY - containerMinY;
                 _verticalGuide.style.display = DisplayStyle.Flex;
             }
 
+            // Draw horizontal guide (Y axis)
             if (_snapY) {
-                _horizontalGuide.style.top = containerCenterY;
+                float guideY = 0f;
+                switch (_snapYType) {
+                    case SnapType.Center: guideY = nodeCenterY; break;
+                    case SnapType.Top: guideY = nodeTop; break;
+                    case SnapType.Bottom: guideY = nodeBottom; break;
+                }
+                float containerGuideY = guideY * _zoom + _offset.y;
+                float containerMinX = minX * _zoom + _offset.x;
+                float containerMaxX = maxX * _zoom + _offset.x;
+
+                _horizontalGuide.style.top = containerGuideY;
                 _horizontalGuide.style.left = containerMinX;
                 _horizontalGuide.style.width = containerMaxX - containerMinX;
                 _horizontalGuide.style.display = DisplayStyle.Flex;
