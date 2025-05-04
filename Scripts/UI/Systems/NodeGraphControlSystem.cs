@@ -55,6 +55,7 @@ namespace CoasterForge.UI {
             _view.PortChangeRequested += OnPortChangeRequested;
             _view.PromoteRequested += OnPromoteRequested;
             _view.DurationTypeChangeRequested += OnDurationTypeChangeRequested;
+            _view.RenderToggleChangeRequested += OnRenderToggleChangeRequested;
         }
 
         protected override void OnStopRunning() {
@@ -66,6 +67,7 @@ namespace CoasterForge.UI {
             _view.PortChangeRequested -= OnPortChangeRequested;
             _view.PromoteRequested -= OnPromoteRequested;
             _view.DurationTypeChangeRequested -= OnDurationTypeChangeRequested;
+            _view.RenderToggleChangeRequested -= OnRenderToggleChangeRequested;
         }
 
         protected override void OnUpdate() {
@@ -152,7 +154,12 @@ namespace CoasterForge.UI {
                 if (!_nodeMap.TryGetValue(entity, out var uiNode)) {
                     string name = SystemAPI.GetComponent<Name>(entity).ToString();
                     NodeType type = SystemAPI.GetComponent<Node>(entity);
-                    uiNode = _view.AddNode(name, entity, type, uiPosition, _inputPortData, _outputPortData);
+                    bool render = type switch {
+                        NodeType.ForceSection or NodeType.GeometricSection
+                        or NodeType.CopyPath => SystemAPI.GetComponent<Render>(entity),
+                        _ => false,
+                    };
+                    uiNode = _view.AddNode(name, entity, type, render, uiPosition, _inputPortData, _outputPortData);
                     _nodeMap[entity] = uiNode;
                 }
 
@@ -165,6 +172,11 @@ namespace CoasterForge.UI {
                 if (SystemAPI.HasComponent<Duration>(entity)) {
                     var duration = SystemAPI.GetComponent<Duration>(entity);
                     uiNode.SetDurationType(duration.Type);
+                }
+
+                if (SystemAPI.HasComponent<Render>(entity)) {
+                    var render = SystemAPI.GetComponent<Render>(entity);
+                    uiNode.SetRenderToggle(render.Value);
                 }
             }
 
@@ -240,7 +252,7 @@ namespace CoasterForge.UI {
             return null;
         }
 
-        private Entity AddNode(float2 position, NodeType nodeType) {
+        private Entity AddNode(float2 position, NodeType nodeType, bool render) {
             var ecb = new EntityCommandBuffer(Allocator.Temp);
 
             var node = EntityManager.CreateEntity();
@@ -357,6 +369,12 @@ namespace CoasterForge.UI {
                 ecb.AddBuffer<Point>(node);
             }
 
+            if (nodeType == NodeType.ForceSection
+                || nodeType == NodeType.GeometricSection
+                || nodeType == NodeType.CopyPath) {
+                ecb.AddComponent<Render>(node, render);
+            }
+
             if (nodeType == NodeType.ForceSection || nodeType == NodeType.GeometricSection) {
                 SectionType sectionType = nodeType switch {
                     NodeType.ForceSection => SectionType.Force,
@@ -430,7 +448,7 @@ namespace CoasterForge.UI {
         private void OnAddNodeRequested(Vector2 position, NodeType nodeType) {
             UndoManager.Record();
 
-            AddNode(position, nodeType);
+            AddNode(position, nodeType, true);
         }
 
         private void OnAddConnectedNodeRequested(
@@ -445,7 +463,7 @@ namespace CoasterForge.UI {
 
             UndoManager.Record();
 
-            var node = AddNode(position, nodeType);
+            var node = AddNode(position, nodeType, true);
             Entity sourceEntity = Entity.Null;
             Entity targetEntity = Entity.Null;
             var inputs = SystemAPI.GetBuffer<InputPortReference>(node);
@@ -577,7 +595,7 @@ namespace CoasterForge.UI {
             float2 uiPosition = SystemAPI.GetComponent<UIPosition>(targetNode);
 
             float2 sourcePosition = uiPosition + new float2(-256f, 0f);
-            var node = AddNode(sourcePosition, NodeType.Anchor);
+            var node = AddNode(sourcePosition, NodeType.Anchor, true);
 
             var sourcePort = SystemAPI.GetBuffer<OutputPortReference>(node)[0];
             var targetPort = port.Entity;
@@ -613,6 +631,13 @@ namespace CoasterForge.UI {
 
             ref var dirty = ref SystemAPI.GetComponentRW<Dirty>(node.Entity).ValueRW;
             dirty = true;
+        }
+
+        private void OnRenderToggleChangeRequested(NodeGraphNode node, bool value) {
+            UndoManager.Record();
+
+            ref var render = ref SystemAPI.GetComponentRW<Render>(node.Entity).ValueRW;
+            render.Value = value;
         }
 
         private string SerializeGraph() {
@@ -671,6 +696,11 @@ namespace CoasterForge.UI {
                 Duration duration = type switch {
                     NodeType.ForceSection or NodeType.GeometricSection => SystemAPI.GetComponent<Duration>(nodeEntity),
                     _ => default,
+                };
+                bool render = type switch {
+                    NodeType.ForceSection or NodeType.GeometricSection
+                    or NodeType.CopyPath => SystemAPI.GetComponent<Render>(nodeEntity),
+                    _ => false,
                 };
                 DynamicBuffer<RollSpeedKeyframe>? rollSpeedKeyframeBuffer = type switch {
                     NodeType.ForceSection or NodeType.GeometricSection => SystemAPI.GetBuffer<RollSpeedKeyframe>(nodeEntity),
@@ -776,6 +806,7 @@ namespace CoasterForge.UI {
                     OutputPorts = outputPorts,
                     Anchor = anchor,
                     Duration = duration,
+                    Render = render,
                     RollSpeedKeyframes = rollSpeedKeyframes,
                     NormalForceKeyframes = normalForceKeyframes,
                     LateralForceKeyframes = lateralForceKeyframes,
@@ -876,6 +907,12 @@ namespace CoasterForge.UI {
                     || node.Type == NodeType.CopyPath
                     || node.Type == NodeType.ReversePath) {
                     ecb.AddBuffer<Point>(entity);
+                }
+
+                if (node.Type == NodeType.ForceSection
+                    || node.Type == NodeType.GeometricSection
+                    || node.Type == NodeType.CopyPath) {
+                    ecb.AddComponent<Render>(entity, node.Render);
                 }
 
                 if (node.Type == NodeType.ForceSection

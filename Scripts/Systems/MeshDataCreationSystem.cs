@@ -8,7 +8,7 @@ namespace CoasterForge {
 
         protected override void OnCreate() {
             _query = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<Point>()
+                .WithAll<Render>()
                 .WithNone<HasMeshDataTag>()
                 .Build(EntityManager);
 
@@ -18,15 +18,21 @@ namespace CoasterForge {
         protected override void OnUpdate() {
             var ecb = new EntityCommandBuffer(Allocator.Temp);
 
-            var sections = _query.ToEntityArray(Allocator.Temp);
-            foreach (var section in sections) {
+            var entities = _query.ToEntityArray(Allocator.Temp);
+            var render = _query.ToComponentDataArray<Render>(Allocator.Temp);
+            for (int i = 0; i < entities.Length; i++) {
+                if (!render[i]) continue;
+
+                var entity = entities[i];
                 var meshDataEntity = ecb.CreateEntity();
                 ecb.AddComponent(meshDataEntity, new MeshData {
-                    Entity = section
+                    Entity = entity
                 });
-                ecb.AddComponent<HasMeshDataTag>(section);
+                ecb.AddComponent<HasMeshDataTag>(entity);
                 ecb.SetName(meshDataEntity, "MeshData");
             }
+            entities.Dispose();
+            render.Dispose();
 
             ecb.Playback(EntityManager);
             ecb.Dispose();

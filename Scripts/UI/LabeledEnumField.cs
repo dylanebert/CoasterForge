@@ -27,7 +27,7 @@ namespace CoasterForge.UI {
             style.flexDirection = FlexDirection.Row;
             style.alignItems = Align.Center;
             style.paddingLeft = 8f;
-            style.paddingRight = 4f;
+            style.paddingRight = 0f;
             style.paddingTop = 0f;
             style.paddingBottom = 0f;
             style.marginLeft = 0f;

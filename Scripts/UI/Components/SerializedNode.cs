@@ -7,6 +7,7 @@ namespace CoasterForge.UI {
         public Name Name;
         public NodeType Type;
         public UIPosition Position;
+        public bool Render;
         public List<SerializedPort> InputPorts;
         public List<SerializedPort> OutputPorts;
 

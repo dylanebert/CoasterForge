@@ -80,14 +80,20 @@ namespace CoasterForge {
                     PointData prev = section.Points[^1];
                     PointData curr = prev;
 
+                    if (curr.Velocity < EPSILON) {
+                        float pitch = curr.GetPitch();
+                        if (pitch < -EPSILON) {
+                            curr.SetVelocity(MIN_VELOCITY, curr.TotalLength);
+                        }
+                        else {
+                            UnityEngine.Debug.LogWarning("Velocity is too low");
+                            break;
+                        }
+                    }
+
                     UpdateCopyPoint(section, ref curr, prev, ref pathBuffer, ref index, ref distance, transform, rotation);
 
                     section.Points.Add(curr);
-
-                    if (curr.Velocity < EPSILON) {
-                        UnityEngine.Debug.LogWarning("Velocity is too low");
-                        break;
-                    }
                 }
 
                 if (section.OutputPorts.Length > 0 && AnchorPortLookup.TryGetComponent(section.OutputPorts[0], out var anchorPort)) {

@@ -10,6 +10,12 @@ namespace CoasterForge {
             foreach (var (meshData, entity) in SystemAPI.Query<MeshData>().WithEntityAccess()) {
                 if (!EntityManager.Exists(meshData.Entity)) {
                     ecb.DestroyEntity(entity);
+                    continue;
+                }
+
+                if (!SystemAPI.GetComponent<Render>(meshData.Entity).Value) {
+                    ecb.RemoveComponent<HasMeshDataTag>(meshData.Entity);
+                    ecb.DestroyEntity(entity);
                 }
             }
 

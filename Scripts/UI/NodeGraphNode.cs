@@ -25,6 +25,7 @@ namespace CoasterForge.UI {
         private VisualElement _portsDivider;
         private VisualElement _outputsContainer;
         private LabeledEnumField<DurationType> _durationTypeField;
+        private LabeledToggle _renderToggle;
         private VisualElement _footerDivider;
         private VisualElement _footer;
         private Vector2 _dragStart;
@@ -59,6 +60,7 @@ namespace CoasterForge.UI {
             string name,
             Entity entity,
             NodeType type,
+            bool render,
             List<PortData> inputPorts,
             List<PortData> outputPorts
         ) {
@@ -211,7 +213,9 @@ namespace CoasterForge.UI {
             };
             _contents.Add(_outputsContainer);
 
-            if (_type == NodeType.ForceSection || _type == NodeType.GeometricSection) {
+            if (_type == NodeType.ForceSection
+                || _type == NodeType.GeometricSection
+                || _type == NodeType.CopyPath) {
                 var itemsDivider = new VisualElement {
                     style = {
                         position = Position.Relative,
@@ -248,10 +252,18 @@ namespace CoasterForge.UI {
                 };
                 Add(itemsContainer);
 
-                _durationTypeField = new LabeledEnumField<DurationType>(this, "Type", DurationType.Time);
-                itemsContainer.Add(_durationTypeField);
+                if (_type == NodeType.ForceSection
+                    || _type == NodeType.GeometricSection) {
+                    _durationTypeField = new LabeledEnumField<DurationType>(this, "Type", DurationType.Time);
+                    itemsContainer.Add(_durationTypeField);
 
-                _durationTypeField.ValueChanged += OnDurationTypeChanged;
+                    _durationTypeField.ValueChanged += OnDurationTypeChanged;
+                }
+
+                _renderToggle = new LabeledToggle(this, "Render", render);
+                itemsContainer.Add(_renderToggle);
+
+                _renderToggle.Toggle.RegisterValueChangedCallback(OnRenderToggleChanged);
             }
 
             _footerDivider = new VisualElement {
@@ -328,6 +340,10 @@ namespace CoasterForge.UI {
 
         private void OnDurationTypeChanged(DurationType durationType) {
             _view.InvokeDurationTypeChangeRequest(this, durationType);
+        }
+
+        private void OnRenderToggleChanged(ChangeEvent<bool> evt) {
+            _view.InvokeRenderToggleChangeRequest(this, evt.newValue);
         }
 
         public void Select() {
@@ -456,6 +472,10 @@ namespace CoasterForge.UI {
 
         public void SetDurationType(DurationType durationType) {
             _durationTypeField.SetValue(durationType);
+        }
+
+        public void SetRenderToggle(bool value) {
+            _renderToggle.SetValue(value);
         }
     }
 }

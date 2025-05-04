@@ -54,6 +54,7 @@ namespace CoasterForge.UI {
         public event Action<NodeGraphPort, object> PortChangeRequested;
         public event Action<NodeGraphPort> PromoteRequested;
         public event Action<NodeGraphNode, DurationType> DurationTypeChangeRequested;
+        public event Action<NodeGraphNode, bool> RenderToggleChangeRequested;
 
         public NodeGraphView() {
             style.position = Position.Absolute;
@@ -174,11 +175,12 @@ namespace CoasterForge.UI {
             string name,
             Entity entity,
             NodeType type,
+            bool render,
             Vector2 position,
             List<PortData> inputPorts,
             List<PortData> outputPorts
         ) {
-            var node = new NodeGraphNode(this, name, entity, type, inputPorts, outputPorts);
+            var node = new NodeGraphNode(this, name, entity, type, render, inputPorts, outputPorts);
             Vector2 contentPosition = (position - _offset) / _zoom;
             node.style.left = contentPosition.x;
             node.style.top = contentPosition.y;
@@ -582,6 +584,10 @@ namespace CoasterForge.UI {
 
         public void InvokeDurationTypeChangeRequest(NodeGraphNode node, DurationType durationType) {
             DurationTypeChangeRequested?.Invoke(node, durationType);
+        }
+
+        public void InvokeRenderToggleChangeRequest(NodeGraphNode node, bool value) {
+            RenderToggleChangeRequested?.Invoke(node, value);
         }
     }
 }
